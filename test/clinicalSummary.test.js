@@ -142,4 +142,27 @@ test('Clinical Summary Engine & Privacy Unit Tests', async (t) => {
     const resIdeal = await analyzeLiveCameraFrame(null, { torsoLean: 15, activeDepth: 88, leftKnee: 88, rightKnee: 89 }, { reps: 5, squatState: 'BOTTOM' });
     assert.ok(resIdeal.tip.includes('depth') || resIdeal.tip.includes('heels') || resIdeal.tip.includes('spine') || resIdeal.tip.length > 10);
   });
+
+  await t.test('askAICoachConversation responds with intelligent physical therapy advice', async () => {
+    const { askAICoachConversation } = await import('../src/lib/ai/geminiClient.js');
+
+    // Test question about depth
+    const replyDepth = await askAICoachConversation('How is my depth?', [], {
+      jointAngles: { activeDepth: 89, torsoLean: 14 },
+      repSnapshot: { reps: 6 },
+    });
+    assert.ok(replyDepth.includes('depth') || replyDepth.includes('90°') || replyDepth.includes('knee'));
+
+    // Test question about knee pain
+    const replyPain = await askAICoachConversation('My knee is slightly sore', [], {
+      jointAngles: { activeDepth: 98 },
+    });
+    assert.ok(replyPain.includes('pain') || replyPain.includes('discomfort') || replyPain.includes('range'));
+
+    // Test question about posture
+    const replyPosture = await askAICoachConversation('Check my posture', [], {
+      jointAngles: { torsoLean: 22 },
+    });
+    assert.ok(replyPosture.includes('chest') || replyPosture.includes('spine') || replyPosture.includes('torso') || replyPosture.includes('alignment'));
+  });
 });

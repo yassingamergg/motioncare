@@ -14,10 +14,11 @@ import { SessionManager, SESSION_STATUS } from '../../lib/session/sessionManager
 import { SessionRepository } from '../../lib/supabase/sessionRepository';
 import { PainReportModal } from '../../components/Feedback/PainReportModal';
 import { SessionSummaryModal } from '../../components/SessionSummary/SessionSummaryModal';
+import { AICoachConversationModal } from '../../components/AI/AICoachConversationModal';
 import { VoiceCoach } from '../../lib/audio/voiceCoach';
 import { AudioControls } from '../../components/Audio/AudioControls';
 import { analyzeLiveCameraFrame } from '../../lib/ai/geminiClient';
-import { Eye, EyeOff, Layers, Sliders, CheckCircle, RefreshCw, AlertTriangle, Play, Square, Timer, RotateCcw, Database, Volume2, Sparkles, Bot, X } from 'lucide-react';
+import { Eye, EyeOff, Layers, Sliders, CheckCircle, RefreshCw, AlertTriangle, Play, Square, Timer, RotateCcw, Database, Volume2, Sparkles, Bot, X, MessageSquare, Mic } from 'lucide-react';
 
 export function PoseSessionView({ onFpsUpdate }) {
   // Model & detector state
@@ -68,7 +69,10 @@ export function PoseSessionView({ onFpsUpdate }) {
   const [isAudioMuted, setIsAudioMuted] = useState(false);
   const [audioVolume, setAudioVolume] = useState(0.9);
   const [audioRate, setAudioRate] = useState(1.05);
+  const [audioPitch, setAudioPitch] = useState(1.0);
+  const [selectedVoiceURI, setSelectedVoiceURI] = useState('');
   const [enableAudioSfx, setEnableAudioSfx] = useState(true);
+  const [isConversationModalOpen, setIsConversationModalOpen] = useState(false);
   const prevSquatStateRef = useRef('STANDING');
 
   const handleToggleAudioMute = () => {
@@ -87,6 +91,16 @@ export function PoseSessionView({ onFpsUpdate }) {
   const handleAudioRateChange = (newRate) => {
     setAudioRate(newRate);
     voiceCoachRef.current.setRate(newRate);
+  };
+
+  const handleAudioPitchChange = (newPitch) => {
+    setAudioPitch(newPitch);
+    voiceCoachRef.current.setPitch(newPitch);
+  };
+
+  const handleVoiceChange = (uri) => {
+    setSelectedVoiceURI(uri);
+    voiceCoachRef.current.setVoiceURI(uri);
   };
 
   const handleToggleAudioSfx = () => {
@@ -615,29 +629,38 @@ export function PoseSessionView({ onFpsUpdate }) {
             {/* Over-video quick toggles & AI Vision Form Audit */}
             {isCameraActive && (
               <>
-                {/* Top-Left: AI Vision Form Inspection Trigger */}
-                <div className="absolute top-3 left-3 z-20 flex items-center gap-1.5">
+                {/* Top-Left: Conversational AI & Live Vision Controls */}
+                <div className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-1.5 bg-slate-950 border border-slate-700/90 rounded-2xl p-1.5 shadow-2xl backdrop-blur-md">
+                  <button
+                    onClick={() => setIsConversationModalOpen(true)}
+                    title="Open 2-Way Voice Conversation with AI Coach"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-cyan-500 to-teal-500 hover:from-cyan-400 hover:to-teal-400 text-slate-950 font-extrabold text-xs shadow-md shadow-cyan-950/60 cursor-pointer transition"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5 fill-current" />
+                    <span>Talk to AI Coach</span>
+                  </button>
+
                   <button
                     onClick={handleScanFormWithAI}
                     disabled={isScanningVision}
                     title="Ask AI Vision to inspect your live body form & posture"
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-900/90 to-indigo-900/90 hover:from-purple-800 hover:to-indigo-800 border border-purple-600/80 text-purple-200 font-semibold text-xs shadow-lg backdrop-blur cursor-pointer transition disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold text-xs shadow-md shadow-purple-950/60 cursor-pointer transition disabled:opacity-50"
                   >
-                    <Sparkles className={`w-3.5 h-3.5 text-purple-300 ${isScanningVision ? 'animate-spin' : ''}`} />
-                    <span>{isScanningVision ? 'Scanning Form...' : 'AI Vision Scan'}</span>
+                    <Sparkles className={`w-3.5 h-3.5 text-purple-200 ${isScanningVision ? 'animate-spin' : ''}`} />
+                    <span>{isScanningVision ? 'Scanning...' : 'Scan Form'}</span>
                   </button>
 
                   <button
                     onClick={() => setAutoScanVision((prev) => !prev)}
                     title="Toggle Periodic AI Visual Form Audits"
-                    className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold border backdrop-blur transition cursor-pointer flex items-center gap-1 ${
+                    className={`px-2.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer flex items-center gap-1 ${
                       autoScanVision
-                        ? 'bg-purple-950/90 border-purple-500 text-purple-200 shadow-md shadow-purple-950/50'
-                        : 'bg-slate-950/80 border-slate-700/80 text-slate-400 hover:text-slate-200'
+                        ? 'bg-emerald-950 border border-emerald-500 text-emerald-300 shadow-sm'
+                        : 'bg-slate-900 border border-slate-700 text-slate-300 hover:text-white'
                     }`}
                   >
                     <Bot className="w-3.5 h-3.5" />
-                    <span>Auto-Coach: {autoScanVision ? 'ON' : 'OFF'}</span>
+                    <span>Auto: {autoScanVision ? 'ON' : 'OFF'}</span>
                   </button>
                 </div>
 
@@ -650,6 +673,10 @@ export function PoseSessionView({ onFpsUpdate }) {
                     onVolumeChange={handleAudioVolumeChange}
                     rate={audioRate}
                     onRateChange={handleAudioRateChange}
+                    pitch={audioPitch}
+                    onPitchChange={handleAudioPitchChange}
+                    selectedVoiceURI={selectedVoiceURI}
+                    onVoiceChange={handleVoiceChange}
                     enableSfx={enableAudioSfx}
                     onToggleSfx={handleToggleAudioSfx}
                     onTestVoice={handleTestVoice}
@@ -832,6 +859,20 @@ export function PoseSessionView({ onFpsUpdate }) {
         saveStatus={saveStatus}
         onStartNewSession={handleStartNewSession}
         onClose={() => setIsSummaryModalOpen(false)}
+      />
+
+      {/* 2-Way Conversational Physical Therapy AI Coach Modal */}
+      <AICoachConversationModal
+        isOpen={isConversationModalOpen}
+        onClose={() => setIsConversationModalOpen(false)}
+        voiceCoach={voiceCoachRef.current}
+        telemetry={{
+          jointAngles,
+          repSnapshot,
+          formAnalysis,
+          sessionStatus,
+        }}
+        mediaElement={canvasRef.current || videoRef.current}
       />
     </div>
   );

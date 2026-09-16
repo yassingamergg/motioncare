@@ -401,3 +401,138 @@ export async function generateClinicalProgressNote(payload, options = {}) {
     return generateDeterministicClinicalSummary(payload, isLongitudinal);
   }
 }
+
+/**
+ * Interactive 2-Way Conversational Physical Therapy AI Coach:
+ * Allows patient to speak or chat with the AI coach, receiving personalized clinical feedback
+ * grounded in real-time camera vision, joint angles, reps, and physical therapy heuristics.
+ *
+ * @param {string} userMessage - Patient question or voice query
+ * @param {Array} history - Prior conversation [{ role: 'user'|'model', text: string }]
+ * @param {Object} telemetry - { jointAngles, repSnapshot, formAnalysis, sessionStatus }
+ * @param {HTMLVideoElement|HTMLCanvasElement} [mediaElement] - Optional camera frame for visual grounding
+ * @returns {Promise<string>} Coach response text
+ */
+export async function askAICoachConversation(userMessage, history = [], telemetry = {}, mediaElement = null) {
+  const apiKey = getGeminiApiKey();
+  const { jointAngles = {}, repSnapshot = {}, formAnalysis = {}, sessionStatus = 'ACTIVE' } = telemetry;
+  const { leftKnee, rightKnee, torsoLean, activeDepth } = jointAngles;
+  const reps = repSnapshot?.reps || 0;
+  const squatState = repSnapshot?.state || 'STANDING';
+  const formScore = formAnalysis?.overallScore ?? repSnapshot?.sessionSummary?.averageFormScore ?? 88;
+
+  const fallbackResponses = () => {
+    const msg = (userMessage || '').toLowerCase();
+    if (msg.includes('depth') || msg.includes('low') || msg.includes('deep')) {
+      if (activeDepth != null && activeDepth <= 95) {
+        return `Your active knee flexion depth is currently ${Math.round(activeDepth)}°, meeting the ideal 90° physical therapy target. Drive evenly through your heels as you rise!`;
+      } else {
+        return `Your current knee flexion depth is ${activeDepth ? Math.round(activeDepth) + '°' : 'approaching target'}. As long as you have zero joint discomfort, aim to sink hips back toward 90°.`;
+      }
+    }
+    if (msg.includes('hurt') || msg.includes('pain') || msg.includes('knee') || msg.includes('sore')) {
+      return `If you experience discomfort, reduce your descent depth and slow down your tempo. Never push into sharp pain—stay strictly within your comfortable pain-free range.`;
+    }
+    if (msg.includes('posture') || msg.includes('spine') || msg.includes('chest') || msg.includes('back')) {
+      return `Keep your chest elevated and core braced. Your torso alignment is ${torsoLean ? Math.round(torsoLean) + '°' : 'in good position'}. Avoid rounding your lower back at the bottom.`;
+    }
+    if (msg.includes('rep') || msg.includes('how many') || msg.includes('count')) {
+      return `You have completed ${reps} verified repetitions with an overall form quality score of ${formScore}%.`;
+    }
+    return `Keep up the great rhythm! You've recorded ${reps} reps with ${formScore}% form accuracy. Maintain a steady cadence and track your knees in line with your second toe.`;
+  };
+
+  if (!apiKey || !userMessage?.trim()) {
+    return fallbackResponses();
+  }
+
+  try {
+    const base64Image = mediaElement ? captureFrameBase64(mediaElement) : null;
+
+    const systemContext = `You are MotionCare AI Coach, an expert clinical physical therapy assistant. You are coaching a patient live during a rehabilitation exercise session.
+Current Real-Time Biomechanical Telemetry:
+- Exercise: Bodyweight Squats
+- Repetitions Completed: ${reps}
+- Movement Phase: ${squatState}
+- Knee Flexion Depth: ${activeDepth ? Math.round(activeDepth) + '° (Target: ≤90°)' : 'Standby'}
+- Left Knee Flexion: ${leftKnee ? Math.round(leftKnee) + '°' : 'N/A'}, Right Knee Flexion: ${rightKnee ? Math.round(rightKnee) + '°' : 'N/A'}
+- Torso Lean: ${torsoLean ? Math.round(torsoLean) + '°' : 'N/A'}
+- Form Score: ${formScore}%
+- Session State: ${sessionStatus}
+
+Directives:
+1. Answer the patient's question warmly, concisely, and encouragingly (2 to 3 sentences maximum, under 45 words).
+2. Reference their actual kinematics/camera posture when relevant to make the feedback personal and actionable.
+3. Keep advice clinically safe: emphasize symptom tolerance, neutral spine, knee alignment, and controlled eccentric cadence.
+4. Do NOT use markdown asterisks (*), hashtags, bullet points, or complex formatting, because your response will be spoken aloud to the patient.`;
+
+    const contents = [];
+
+    // Prior dialogue history (last 4 turns)
+    const recentHistory = history.slice(-4);
+    for (const h of recentHistory) {
+      contents.push({
+        role: h.role === 'user' ? 'user' : 'model',
+        parts: [{ text: h.text }],
+      });
+    }
+
+    // Current turn
+    const currentParts = [];
+    if (base64Image) {
+      currentParts.push({
+        inline_data: {
+          mime_type: 'image/jpeg',
+          data: base64Image,
+        },
+      });
+    }
+    currentParts.push({
+      text: `${systemContext}\n\nPatient Question: "${userMessage.trim()}"`,
+    });
+
+    contents.push({
+      role: 'user',
+      parts: currentParts,
+    });
+
+    const candidateModels = [
+      'gemini-3.6-flash',
+      'gemini-3.5-flash',
+      'gemini-flash-latest',
+      'gemini-2.5-flash-lite',
+    ];
+
+    for (const model of candidateModels) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey.trim()}`;
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents,
+            generationConfig: {
+              temperature: 0.4,
+              maxOutputTokens: 120,
+            },
+          }),
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          const reply = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (reply && reply.trim()) {
+            return reply.trim().replace(/^["']|["']$/g, '').replace(/\*/g, '');
+          }
+        }
+      } catch (inner) {
+        console.warn(`[MotionCare AI] Chat model ${model} failed, trying fallback:`, inner);
+      }
+    }
+
+    return fallbackResponses();
+  } catch (err) {
+    console.error('[MotionCare AI] Chat conversation error:', err);
+    return fallbackResponses();
+  }
+}

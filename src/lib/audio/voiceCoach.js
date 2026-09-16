@@ -18,11 +18,23 @@ export const AUDIO_PRIORITY = {
 
 export class VoiceCoach {
   constructor(options = {}) {
-    this.isMuted = options.isMuted ?? false;
-    this.speechVolume = options.speechVolume ?? 0.9;
-    this.speechRate = options.speechRate ?? 1.05; // Slightly brisk, clear pace
-    this.enableSfx = options.enableSfx ?? true;
-    this.selectedVoiceURI = options.selectedVoiceURI ?? null;
+    // Load persisted settings if available
+    let stored = {};
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        const raw = window.localStorage.getItem('motioncare_voice_settings');
+        if (raw) stored = JSON.parse(raw);
+      }
+    } catch {
+      // Ignore
+    }
+
+    this.isMuted = options.isMuted ?? stored.isMuted ?? false;
+    this.speechVolume = options.speechVolume ?? stored.speechVolume ?? 0.9;
+    this.speechRate = options.speechRate ?? stored.speechRate ?? 1.05; // Slightly brisk, clear pace
+    this.speechPitch = options.speechPitch ?? stored.speechPitch ?? 1.0;
+    this.enableSfx = options.enableSfx ?? stored.enableSfx ?? true;
+    this.selectedVoiceURI = options.selectedVoiceURI ?? stored.selectedVoiceURI ?? null;
 
     // Cooldown & throttling state
     this.lastSpokenTimestamp = 0;
@@ -90,7 +102,7 @@ export class VoiceCoach {
       const utterance = new SpeechSynthesisUtterance(text);
       utterance.volume = this.speechVolume;
       utterance.rate = this.speechRate;
-      utterance.pitch = 1.0;
+      utterance.pitch = this.speechPitch;
 
       // Select preferred voice if specified
       if (this.selectedVoiceURI) {
@@ -211,29 +223,59 @@ export class VoiceCoach {
     this.speak(`Set complete! ${totalReps} reps recorded. Please report your comfort level.`, AUDIO_PRIORITY.STATUS, true);
   }
 
+  /**
+   * Stops any active speech synthesis immediately
+   */
+  stopSpeaking() {
+    if (this.isSupported()) {
+      window.speechSynthesis.cancel();
+      this.currentPriority = 0;
+    }
+  }
+
+  persistSettings() {
+    try {
+      if (typeof window !== 'undefined' && window.localStorage) {
+        window.localStorage.setItem('motioncare_voice_settings', JSON.stringify(this.getSettings()));
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
   setMuted(muted) {
     this.isMuted = Boolean(muted);
     if (this.isMuted && this.isSupported()) {
-      window.speechSynthesis.cancel();
+      this.stopSpeaking();
     }
+    this.persistSettings();
   }
 
   setVolume(vol) {
     this.speechVolume = Math.max(0, Math.min(1, Number(vol) || 0));
     audioSynthesizer.setVolume(this.speechVolume);
+    this.persistSettings();
   }
 
   setRate(rate) {
     this.speechRate = Math.max(0.7, Math.min(1.5, Number(rate) || 1.0));
+    this.persistSettings();
+  }
+
+  setPitch(pitch) {
+    this.speechPitch = Math.max(0.6, Math.min(1.4, Number(pitch) || 1.0));
+    this.persistSettings();
   }
 
   setEnableSfx(enable) {
     this.enableSfx = Boolean(enable);
     audioSynthesizer.setEnabled(this.enableSfx);
+    this.persistSettings();
   }
 
   setVoiceURI(uri) {
     this.selectedVoiceURI = uri;
+    this.persistSettings();
   }
 
   getSettings() {
@@ -241,6 +283,7 @@ export class VoiceCoach {
       isMuted: this.isMuted,
       speechVolume: this.speechVolume,
       speechRate: this.speechRate,
+      speechPitch: this.speechPitch,
       enableSfx: this.enableSfx,
       selectedVoiceURI: this.selectedVoiceURI,
     };
