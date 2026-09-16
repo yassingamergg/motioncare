@@ -256,7 +256,13 @@ Current Real-Time Kinematics:
 Analyze the user's posture, spinal alignment, knee tracking, depth, and camera setup in this frame.
 Provide 1 concise, direct, supportive physical therapy coaching tip (maximum 20 words). Speak directly to the patient. Do not include markdown asterisks or quotes.`;
 
-  const candidateModels = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash'];
+  const candidateModels = [
+    'gemini-3.6-flash',
+    'gemini-3.5-flash',
+    'gemini-flash-latest',
+    'gemini-2.5-flash-lite',
+    'gemini-2.5-flash',
+  ];
 
   for (const model of candidateModels) {
     try {
@@ -333,7 +339,13 @@ export async function generateClinicalProgressNote(payload, options = {}) {
       : buildSingleSessionPrompt(payload);
 
     // List of models to try in order of capability & speed
-    const candidateModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
+    const candidateModels = [
+      'gemini-3.6-flash',
+      'gemini-3.5-flash',
+      'gemini-flash-latest',
+      'gemini-2.5-flash-lite',
+      'gemini-2.5-flash',
+    ];
     let candidateText = null;
 
     for (const model of candidateModels) {
