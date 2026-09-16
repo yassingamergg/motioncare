@@ -288,7 +288,7 @@ Provide 1 concise, direct, supportive physical therapy coaching tip (maximum 20 
           ],
           generationConfig: {
             temperature: 0.3,
-            maxOutputTokens: 60,
+            maxOutputTokens: 250,
           },
         }),
       });
@@ -513,7 +513,7 @@ Directives:
             contents,
             generationConfig: {
               temperature: 0.4,
-              maxOutputTokens: 120,
+              maxOutputTokens: 500,
             },
           }),
         });

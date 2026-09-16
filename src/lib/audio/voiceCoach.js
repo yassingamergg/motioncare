@@ -206,6 +206,13 @@ export class VoiceCoach {
   }
 
   /**
+   * Spoken announcement when camera feed becomes active
+   */
+  speakCameraReady() {
+    this.speak("Camera active! Step back about two meters so I can see your full body, and let's get started.", AUDIO_PRIORITY.STATUS, true);
+  }
+
+  /**
    * Spoken announcement on session start
    */
   speakSessionStart() {

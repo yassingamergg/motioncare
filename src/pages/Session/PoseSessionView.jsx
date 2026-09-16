@@ -17,8 +17,8 @@ import { SessionSummaryModal } from '../../components/SessionSummary/SessionSumm
 import { AICoachConversationModal } from '../../components/AI/AICoachConversationModal';
 import { VoiceCoach } from '../../lib/audio/voiceCoach';
 import { AudioControls } from '../../components/Audio/AudioControls';
-import { analyzeLiveCameraFrame } from '../../lib/ai/geminiClient';
-import { Eye, EyeOff, Layers, Sliders, CheckCircle, RefreshCw, AlertTriangle, Play, Square, Timer, RotateCcw, Database, Volume2, Sparkles, Bot, X, MessageSquare, Mic } from 'lucide-react';
+import { analyzeLiveCameraFrame, askAICoachConversation } from '../../lib/ai/geminiClient';
+import { Eye, EyeOff, Layers, Sliders, CheckCircle, RefreshCw, AlertTriangle, Play, Square, Timer, RotateCcw, Database, Volume2, Sparkles, Bot, X, MessageSquare, Mic, MicOff } from 'lucide-react';
 
 export function PoseSessionView({ onFpsUpdate }) {
   // Model & detector state
@@ -168,6 +168,124 @@ export function PoseSessionView({ onFpsUpdate }) {
       if (interval) clearInterval(interval);
     };
   }, [autoScanVision, sessionStatus, isCameraActive, trackingState, handleScanFormWithAI]);
+
+  // Continuous Ambient Hands-Free Voice Listener (Patient talks mid-exercise without touching screen)
+  const [isHandsFreeVoiceActive, setIsHandsFreeVoiceActive] = useState(true);
+  const [ambientVoiceStatus, setAmbientVoiceStatus] = useState('idle'); // 'idle' | 'listening' | 'processing'
+  const [ambientSpeechTranscript, setAmbientSpeechTranscript] = useState('');
+  const [liveCoachResponseHUD, setLiveCoachResponseHUD] = useState(null); // { query, reply, timestamp }
+  const speechRecognizerRef = useRef(null);
+  const ambientProcessingLockRef = useRef(false);
+  const conversationHistoryRef = useRef([]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !isCameraActive || !isHandsFreeVoiceActive) {
+      if (speechRecognizerRef.current) {
+        try {
+          speechRecognizerRef.current.abort();
+        } catch {}
+      }
+      setAmbientVoiceStatus('idle');
+      return;
+    }
+
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return;
+
+    let recognizer;
+    try {
+      recognizer = new SpeechRecognition();
+      recognizer.continuous = true;
+      recognizer.interimResults = true;
+      recognizer.lang = 'en-US';
+
+      recognizer.onstart = () => {
+        setAmbientVoiceStatus('listening');
+      };
+
+      recognizer.onresult = async (event) => {
+        // If voice coach is actively speaking, ignore to avoid picking up own voice
+        if (typeof window !== 'undefined' && window.speechSynthesis && window.speechSynthesis.speaking) return;
+        if (ambientProcessingLockRef.current) return;
+
+        let finalTranscript = '';
+        for (let i = event.resultIndex; i < event.results.length; ++i) {
+          if (event.results[i].isFinal) {
+            finalTranscript += event.results[i][0].transcript;
+          } else {
+            setAmbientSpeechTranscript(event.results[i][0].transcript);
+          }
+        }
+
+        const query = finalTranscript.trim();
+        if (query && query.length > 2) {
+          ambientProcessingLockRef.current = true;
+          setAmbientVoiceStatus('processing');
+          setAmbientSpeechTranscript(query);
+
+          try {
+            const reply = await askAICoachConversation(
+              query,
+              conversationHistoryRef.current,
+              {
+                jointAngles,
+                repSnapshot,
+                formAnalysis,
+                sessionStatus,
+              },
+              canvasRef.current || videoRef.current
+            );
+
+            conversationHistoryRef.current.push({ role: 'user', text: query });
+            conversationHistoryRef.current.push({ role: 'model', text: reply });
+
+            setLiveCoachResponseHUD({
+              query,
+              reply,
+              timestamp: Date.now(),
+            });
+
+            voiceCoachRef.current.speak(reply, 100, true);
+          } catch (err) {
+            console.error('[HandsFreeVoice] Error processing ambient speech:', err);
+          } finally {
+            setTimeout(() => {
+              ambientProcessingLockRef.current = false;
+              setAmbientVoiceStatus('listening');
+              setAmbientSpeechTranscript('');
+            }, 3000);
+          }
+        }
+      };
+
+      recognizer.onerror = (e) => {
+        if (e.error !== 'no-speech') {
+          console.warn('[HandsFreeVoice] Recognizer error:', e.error);
+        }
+      };
+
+      recognizer.onend = () => {
+        if (isCameraActive && isHandsFreeVoiceActive && !ambientProcessingLockRef.current) {
+          try {
+            recognizer.start();
+          } catch {}
+        }
+      };
+
+      recognizer.start();
+      speechRecognizerRef.current = recognizer;
+    } catch (err) {
+      console.warn('[HandsFreeVoice] Recognizer init error:', err);
+    }
+
+    return () => {
+      if (recognizer) {
+        try {
+          recognizer.abort();
+        } catch {}
+      }
+    };
+  }, [isCameraActive, isHandsFreeVoiceActive, jointAngles, repSnapshot, formAnalysis, sessionStatus]);
 
   // Initialize stored sessions count from vault
   useEffect(() => {
@@ -460,11 +578,16 @@ export function PoseSessionView({ onFpsUpdate }) {
   }, [isCameraActive, onFpsUpdate]);
 
   // Start frame loop when camera is active and model is ready
+  const hasAnnouncedCameraReadyRef = useRef(false);
   const handleStreamReady = useCallback(() => {
     if (animFrameIdRef.current) {
       cancelAnimationFrame(animFrameIdRef.current);
     }
     animFrameIdRef.current = requestAnimationFrame(processFrame);
+    if (!hasAnnouncedCameraReadyRef.current) {
+      hasAnnouncedCameraReadyRef.current = true;
+      voiceCoachRef.current.speakCameraReady();
+    }
   }, [processFrame]);
 
   // Toggle Camera
@@ -475,6 +598,7 @@ export function PoseSessionView({ onFpsUpdate }) {
         setTrackingState('STANDBY');
         setStructuredPose(null);
         setFps(0);
+        hasAnnouncedCameraReadyRef.current = false;
         if (animFrameIdRef.current) {
           cancelAnimationFrame(animFrameIdRef.current);
         }
@@ -641,6 +765,28 @@ export function PoseSessionView({ onFpsUpdate }) {
                   </button>
 
                   <button
+                    onClick={() => setIsHandsFreeVoiceActive((prev) => !prev)}
+                    title="Toggle Hands-Free Ambient Voice Listening (Talk to AI anytime while standing)"
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-xs font-bold transition cursor-pointer ${
+                      isHandsFreeVoiceActive
+                        ? 'bg-cyan-950 border border-cyan-500 text-cyan-200 shadow-sm'
+                        : 'bg-slate-900 border border-slate-700 text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {isHandsFreeVoiceActive ? (
+                      <>
+                        <Mic className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+                        <span>Hands-Free Voice: ON</span>
+                      </>
+                    ) : (
+                      <>
+                        <MicOff className="w-3.5 h-3.5 text-slate-500" />
+                        <span>Hands-Free Voice: OFF</span>
+                      </>
+                    )}
+                  </button>
+
+                  <button
                     onClick={handleScanFormWithAI}
                     disabled={isScanningVision}
                     title="Ask AI Vision to inspect your live body form & posture"
@@ -704,8 +850,66 @@ export function PoseSessionView({ onFpsUpdate }) {
                   </div>
                 </div>
 
-                {/* Bottom Overlay: AI Vision Live Coaching Pill */}
-                {aiVisionFeedback && (
+                {/* Live Speech Recognition Transcript Pill (When patient is speaking) */}
+                {ambientVoiceStatus === 'listening' && ambientSpeechTranscript && (
+                  <div className="absolute top-16 left-3 z-20 bg-slate-950/95 border border-cyan-500/80 rounded-xl px-3 py-1.5 text-xs text-cyan-300 shadow-xl flex items-center gap-2 animate-fadeIn">
+                    <Mic className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+                    <span>
+                      Hearing: <strong className="text-white">&ldquo;{ambientSpeechTranscript}&rdquo;</strong>
+                    </span>
+                  </div>
+                )}
+
+                {ambientVoiceStatus === 'processing' && (
+                  <div className="absolute top-16 left-3 z-20 bg-slate-950/95 border border-cyan-500 rounded-xl px-3 py-1.5 text-xs text-cyan-300 shadow-xl flex items-center gap-2 animate-pulse">
+                    <Sparkles className="w-3.5 h-3.5 animate-spin" />
+                    <span>AI Coach is analyzing your live form & speaking back...</span>
+                  </div>
+                )}
+
+                {/* Live Conversational Coach Response HUD (Bottom of Camera) */}
+                {liveCoachResponseHUD && (
+                  <div className="absolute bottom-4 left-3 right-3 z-30 bg-slate-950/95 backdrop-blur-md border border-cyan-500/70 rounded-2xl p-3.5 shadow-2xl animate-fadeIn flex items-start justify-between gap-3 text-xs">
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-cyan-600 to-teal-500 flex items-center justify-center text-slate-950 font-bold shrink-0 mt-0.5 shadow-md">
+                        <Bot className="w-4 h-4" />
+                      </div>
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-cyan-300 text-[11px] uppercase tracking-wide">
+                            AI Coach Spoken Reply
+                          </span>
+                          <span className="text-[10px] text-slate-400 italic">
+                            &ldquo;{liveCoachResponseHUD.query}&rdquo;
+                          </span>
+                        </div>
+                        <p className="text-white text-xs sm:text-sm font-medium leading-relaxed">
+                          {liveCoachResponseHUD.reply}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={() => voiceCoachRef.current.speak(liveCoachResponseHUD.reply, 100, true)}
+                        title="Replay Voice"
+                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-cyan-300 transition cursor-pointer"
+                      >
+                        <Volume2 className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        onClick={() => setLiveCoachResponseHUD(null)}
+                        title="Dismiss"
+                        className="p-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* Bottom Overlay: AI Vision Live Coaching Pill (if separate vision scan) */}
+                {!liveCoachResponseHUD && aiVisionFeedback && (
                   <div className="absolute bottom-4 left-3 right-3 z-20 bg-slate-950/90 backdrop-blur-md border border-purple-500/50 rounded-2xl p-3 shadow-2xl animate-fadeIn flex items-start justify-between gap-3 text-xs text-purple-200">
                     <div className="flex items-start gap-2.5">
                       <div className="w-7 h-7 rounded-lg bg-purple-950 border border-purple-700 flex items-center justify-center text-purple-400 shrink-0 mt-0.5">
