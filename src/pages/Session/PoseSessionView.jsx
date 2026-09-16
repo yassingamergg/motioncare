@@ -14,7 +14,9 @@ import { SessionManager, SESSION_STATUS } from '../../lib/session/sessionManager
 import { SessionRepository } from '../../lib/supabase/sessionRepository';
 import { PainReportModal } from '../../components/Feedback/PainReportModal';
 import { SessionSummaryModal } from '../../components/SessionSummary/SessionSummaryModal';
-import { Eye, EyeOff, Layers, Sliders, CheckCircle, RefreshCw, AlertTriangle, Play, Square, Timer, RotateCcw, Database } from 'lucide-react';
+import { VoiceCoach } from '../../lib/audio/voiceCoach';
+import { AudioControls } from '../../components/Audio/AudioControls';
+import { Eye, EyeOff, Layers, Sliders, CheckCircle, RefreshCw, AlertTriangle, Play, Square, Timer, RotateCcw, Database, Volume2 } from 'lucide-react';
 
 export function PoseSessionView({ onFpsUpdate }) {
   // Model & detector state
@@ -59,6 +61,44 @@ export function PoseSessionView({ onFpsUpdate }) {
   const [liveFeedback, setLiveFeedback] = useState(null);
   const lastEvaluatedRepIndexRef = useRef(0);
   const formAnalysisHistoryRef = useRef([]);
+
+  // Voice Coach Instance & Audio State
+  const voiceCoachRef = useRef(new VoiceCoach());
+  const [isAudioMuted, setIsAudioMuted] = useState(false);
+  const [audioVolume, setAudioVolume] = useState(0.9);
+  const [audioRate, setAudioRate] = useState(1.05);
+  const [enableAudioSfx, setEnableAudioSfx] = useState(true);
+  const prevSquatStateRef = useRef('STANDING');
+
+  const handleToggleAudioMute = () => {
+    setIsAudioMuted((prev) => {
+      const next = !prev;
+      voiceCoachRef.current.setMuted(next);
+      return next;
+    });
+  };
+
+  const handleAudioVolumeChange = (newVol) => {
+    setAudioVolume(newVol);
+    voiceCoachRef.current.setVolume(newVol);
+  };
+
+  const handleAudioRateChange = (newRate) => {
+    setAudioRate(newRate);
+    voiceCoachRef.current.setRate(newRate);
+  };
+
+  const handleToggleAudioSfx = () => {
+    setEnableAudioSfx((prev) => {
+      const next = !prev;
+      voiceCoachRef.current.setEnableSfx(next);
+      return next;
+    });
+  };
+
+  const handleTestVoice = () => {
+    voiceCoachRef.current.speak('Testing clinical voice coach. Maintain neutral spine alignment.', 100, true);
+  };
 
   // Session Lifecycle Manager
   const sessionManagerRef = useRef(new SessionManager({ id: 'bodyweight_squat', name: 'Bodyweight Squat' }));
@@ -113,6 +153,7 @@ export function PoseSessionView({ onFpsUpdate }) {
     setActiveDuration(0);
     setSessionStatus(SESSION_STATUS.ACTIVE);
     setIsPrePainModalOpen(false);
+    voiceCoachRef.current.speakSessionStart();
   };
 
   const handleFinishSession = () => {
@@ -132,6 +173,7 @@ export function PoseSessionView({ onFpsUpdate }) {
     setSessionStatus(SESSION_STATUS.COMPLETED);
     setIsPostPainModalOpen(false);
     setIsSummaryModalOpen(true);
+    voiceCoachRef.current.speakSessionComplete(summary.totalReps);
 
     // Persist to dual-mode storage (Supabase cloud & offline vault)
     setSaveStatus('saving');
@@ -313,13 +355,25 @@ export function PoseSessionView({ onFpsUpdate }) {
         const snap = squatDetectorRef.current.update(now, kp, currentAngles);
         setRepSnapshot(snap);
 
+        // Audio Biofeedback: Chime when bottom depth target is reached
+        if (snap.state === 'BOTTOM' && prevSquatStateRef.current !== 'BOTTOM') {
+          voiceCoachRef.current.speakTargetDepth();
+        }
+        prevSquatStateRef.current = snap.state;
+
         // Live real-time postural guidance during movement
         const liveGuide = formAnalyzerRef.current.evaluateLiveFrame(currentAngles, kp, snap.state);
         setLiveFeedback(liveGuide);
 
-        // When a new rep completes, compute full MotionCare Form Score
+        // Spoken clinical guidance for high-priority form warnings during active session
+        if (liveGuide && (liveGuide.severity === 'warning' || liveGuide.severity === 'danger') && sessionStatus === SESSION_STATUS.ACTIVE) {
+          voiceCoachRef.current.speakFormFeedback(liveGuide);
+        }
+
+        // When a new rep completes, compute full MotionCare Form Score & announce
         if (snap.lastRep && snap.lastRep.repIndex !== lastEvaluatedRepIndexRef.current) {
           lastEvaluatedRepIndexRef.current = snap.lastRep.repIndex;
+          voiceCoachRef.current.speakRepCompleted(snap.lastRep.repIndex, 10);
           const analysis = formAnalyzerRef.current.analyzeRepetition(
             snap.lastRep,
             kp,
@@ -516,25 +570,39 @@ export function PoseSessionView({ onFpsUpdate }) {
 
             {/* Over-video quick toggles */}
             {isCameraActive && (
-              <div className="absolute top-3 right-3 z-20 flex items-center gap-1.5 bg-slate-950/80 backdrop-blur border border-slate-700/80 rounded-lg p-1 text-xs">
-                <button
-                  onClick={() => setShowSkeleton((prev) => !prev)}
-                  title="Toggle Skeleton Overlay"
-                  className={`p-1.5 rounded transition ${
-                    showSkeleton ? 'bg-cyan-950 text-cyan-300' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  <Layers className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setShowAngles((prev) => !prev)}
-                  title="Toggle Angle Tags"
-                  className={`p-1.5 rounded transition ${
-                    showAngles ? 'bg-cyan-950 text-cyan-300' : 'text-slate-400 hover:text-slate-200'
-                  }`}
-                >
-                  {showAngles ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
-                </button>
+              <div className="absolute top-3 right-3 z-20 flex items-center gap-1.5">
+                <AudioControls
+                  isMuted={isAudioMuted}
+                  onToggleMute={handleToggleAudioMute}
+                  volume={audioVolume}
+                  onVolumeChange={handleAudioVolumeChange}
+                  rate={audioRate}
+                  onRateChange={handleAudioRateChange}
+                  enableSfx={enableAudioSfx}
+                  onToggleSfx={handleToggleAudioSfx}
+                  onTestVoice={handleTestVoice}
+                />
+
+                <div className="flex items-center gap-1 bg-slate-950/85 backdrop-blur border border-slate-700/80 rounded-xl p-1 text-xs shadow-lg">
+                  <button
+                    onClick={() => setShowSkeleton((prev) => !prev)}
+                    title="Toggle Skeleton Overlay"
+                    className={`p-1.5 rounded-lg transition cursor-pointer ${
+                      showSkeleton ? 'bg-cyan-950 text-cyan-300' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    <Layers className="w-4 h-4" />
+                  </button>
+                  <button
+                    onClick={() => setShowAngles((prev) => !prev)}
+                    title="Toggle Angle Tags"
+                    className={`p-1.5 rounded-lg transition cursor-pointer ${
+                      showAngles ? 'bg-cyan-950 text-cyan-300' : 'text-slate-400 hover:text-slate-200'
+                    }`}
+                  >
+                    {showAngles ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                  </button>
+                </div>
               </div>
             )}
           </div>
@@ -604,15 +672,15 @@ export function PoseSessionView({ onFpsUpdate }) {
           <div className="bg-slate-900/60 border border-slate-800/80 rounded-2xl p-5 text-xs text-slate-400 space-y-3">
             <div className="flex items-center gap-2 text-slate-200 font-semibold">
               <CheckCircle className="w-4 h-4 text-emerald-400" />
-              <span>Milestone 7 — Gemini AI Clinical Progress Notes</span>
+              <span>Milestone 8 — Real-Time Voice Coaching & Audio Biofeedback</span>
             </div>
             <p className="leading-relaxed">
-              Standardized physical therapy SOAP documentation (Subjective, Objective, Assessment, Plan) generated from computer vision telemetry. Zero video upload, 100% privacy-preserved.
+              Hands-free physical therapy voice guidance active: Web Speech API prioritized clinical cues (valgus alerts, torso uprightness) and zero-latency Web Audio depth/rep chimes.
             </p>
             <div className="pt-2 border-t border-slate-800 grid grid-cols-2 gap-2 text-[11px]">
               <div>
-                <span className="text-slate-500 block">AI Engine Status</span>
-                <span className="text-purple-400 font-medium">Dual-Mode (Gemini + Local)</span>
+                <span className="text-slate-500 block">Voice Guidance</span>
+                <span className="text-cyan-400 font-medium">Prioritized Speech & Chimes</span>
               </div>
               <div>
                 <span className="text-slate-500 block">Vault Sessions</span>

@@ -69,9 +69,9 @@ export function App() {
 
           {/* Milestone Navigation Indicator */}
           <div className="flex items-center gap-2 text-xs">
-            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-purple-950/80 border border-purple-700/80 text-purple-300 font-medium">
-              <span className="w-2 h-2 rounded-full bg-purple-400 animate-pulse" />
-              <span>Milestone 7: Gemini AI Clinical Summaries Active</span>
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-cyan-950/80 border border-cyan-700/80 text-cyan-300 font-medium">
+              <span className="w-2 h-2 rounded-full bg-cyan-400 animate-pulse" />
+              <span>Milestone 8: Real-Time Voice Coaching Active</span>
             </div>
           </div>
         </div>
