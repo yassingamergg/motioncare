@@ -171,15 +171,77 @@ export function PoseSessionView({ onFpsUpdate }) {
 
   // Continuous Ambient Hands-Free Voice Listener (Patient talks mid-exercise without touching screen)
   const [isHandsFreeVoiceActive, setIsHandsFreeVoiceActive] = useState(true);
-  const [ambientVoiceStatus, setAmbientVoiceStatus] = useState('idle'); // 'idle' | 'listening' | 'processing'
+  const [ambientVoiceStatus, setAmbientVoiceStatus] = useState('idle'); // 'idle' | 'listening' | 'hearing' | 'processing' | 'speaking'
   const [ambientSpeechTranscript, setAmbientSpeechTranscript] = useState('');
   const [liveCoachResponseHUD, setLiveCoachResponseHUD] = useState(null); // { query, reply, timestamp }
   const speechRecognizerRef = useRef(null);
   const ambientProcessingLockRef = useRef(false);
   const conversationHistoryRef = useRef([]);
+  const speechBufferRef = useRef('');
+  const silenceDebounceTimerRef = useRef(null);
 
+  // Keep telemetry snapshot in a ref to prevent tearing down the speech recognizer on every 30fps animation frame
+  const latestTelemetryRef = useRef({});
+  useEffect(() => {
+    latestTelemetryRef.current = {
+      jointAngles,
+      repSnapshot,
+      formAnalysis,
+      sessionStatus,
+    };
+  }, [jointAngles, repSnapshot, formAnalysis, sessionStatus]);
+
+  // Execute conversational query with AI Coach
+  const handleProcessAmbientQuery = useCallback(async (spokenText) => {
+    const query = (spokenText || '').trim();
+    if (!query || query.length < 3 || ambientProcessingLockRef.current) return;
+
+    ambientProcessingLockRef.current = true;
+    setAmbientVoiceStatus('processing');
+    setAmbientSpeechTranscript(query);
+
+    try {
+      const reply = await askAICoachConversation(
+        query,
+        conversationHistoryRef.current,
+        latestTelemetryRef.current,
+        canvasRef.current || videoRef.current
+      );
+
+      conversationHistoryRef.current.push({ role: 'user', text: query });
+      conversationHistoryRef.current.push({ role: 'model', text: reply });
+
+      setLiveCoachResponseHUD({
+        query,
+        reply,
+        timestamp: Date.now(),
+      });
+
+      setAmbientVoiceStatus('speaking');
+      voiceCoachRef.current.speak(reply, 100, true, () => {
+        setAmbientVoiceStatus('listening');
+      });
+    } catch (err) {
+      console.error('[HandsFreeVoice] Error processing ambient speech:', err);
+      setAmbientVoiceStatus('listening');
+    } finally {
+      setTimeout(() => {
+        ambientProcessingLockRef.current = false;
+        speechBufferRef.current = '';
+        setAmbientSpeechTranscript('');
+        if (!voiceCoachRef.current.isSpeakingActive()) {
+          setAmbientVoiceStatus('listening');
+        }
+      }, 2000);
+    }
+  }, []);
+
+  // Main ambient speech recognition listener lifecycle
   useEffect(() => {
     if (typeof window === 'undefined' || !isCameraActive || !isHandsFreeVoiceActive) {
+      if (silenceDebounceTimerRef.current) {
+        clearTimeout(silenceDebounceTimerRef.current);
+      }
       if (speechRecognizerRef.current) {
         try {
           speechRecognizerRef.current.abort();
@@ -190,102 +252,100 @@ export function PoseSessionView({ onFpsUpdate }) {
     }
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechRecognition) return;
-
-    let recognizer;
-    try {
-      recognizer = new SpeechRecognition();
-      recognizer.continuous = true;
-      recognizer.interimResults = true;
-      recognizer.lang = 'en-US';
-
-      recognizer.onstart = () => {
-        setAmbientVoiceStatus('listening');
-      };
-
-      recognizer.onresult = async (event) => {
-        // If voice coach is actively speaking, ignore to avoid picking up own voice
-        if (typeof window !== 'undefined' && window.speechSynthesis && window.speechSynthesis.speaking) return;
-        if (ambientProcessingLockRef.current) return;
-
-        let finalTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; ++i) {
-          if (event.results[i].isFinal) {
-            finalTranscript += event.results[i][0].transcript;
-          } else {
-            setAmbientSpeechTranscript(event.results[i][0].transcript);
-          }
-        }
-
-        const query = finalTranscript.trim();
-        if (query && query.length > 2) {
-          ambientProcessingLockRef.current = true;
-          setAmbientVoiceStatus('processing');
-          setAmbientSpeechTranscript(query);
-
-          try {
-            const reply = await askAICoachConversation(
-              query,
-              conversationHistoryRef.current,
-              {
-                jointAngles,
-                repSnapshot,
-                formAnalysis,
-                sessionStatus,
-              },
-              canvasRef.current || videoRef.current
-            );
-
-            conversationHistoryRef.current.push({ role: 'user', text: query });
-            conversationHistoryRef.current.push({ role: 'model', text: reply });
-
-            setLiveCoachResponseHUD({
-              query,
-              reply,
-              timestamp: Date.now(),
-            });
-
-            voiceCoachRef.current.speak(reply, 100, true);
-          } catch (err) {
-            console.error('[HandsFreeVoice] Error processing ambient speech:', err);
-          } finally {
-            setTimeout(() => {
-              ambientProcessingLockRef.current = false;
-              setAmbientVoiceStatus('listening');
-              setAmbientSpeechTranscript('');
-            }, 3000);
-          }
-        }
-      };
-
-      recognizer.onerror = (e) => {
-        if (e.error !== 'no-speech') {
-          console.warn('[HandsFreeVoice] Recognizer error:', e.error);
-        }
-      };
-
-      recognizer.onend = () => {
-        if (isCameraActive && isHandsFreeVoiceActive && !ambientProcessingLockRef.current) {
-          try {
-            recognizer.start();
-          } catch {}
-        }
-      };
-
-      recognizer.start();
-      speechRecognizerRef.current = recognizer;
-    } catch (err) {
-      console.warn('[HandsFreeVoice] Recognizer init error:', err);
+    if (!SpeechRecognition) {
+      console.warn('[HandsFreeVoice] Web SpeechRecognition API is not supported in this browser environment.');
+      return;
     }
 
+    let isDisposed = false;
+    let recognizer = null;
+
+    const startListeningSession = () => {
+      if (isDisposed) return;
+      try {
+        recognizer = new SpeechRecognition();
+        recognizer.continuous = true;
+        recognizer.interimResults = true;
+        recognizer.lang = 'en-US';
+
+        recognizer.onstart = () => {
+          if (!isDisposed && !ambientProcessingLockRef.current) {
+            setAmbientVoiceStatus('listening');
+          }
+        };
+
+        recognizer.onresult = (event) => {
+          // If voice coach is actively speaking, drop mic inputs to prevent acoustic echo loops
+          if (voiceCoachRef.current.isSpeakingActive()) {
+            return;
+          }
+          if (ambientProcessingLockRef.current) {
+            return;
+          }
+
+          let combinedTranscript = '';
+          for (let i = 0; i < event.results.length; ++i) {
+            combinedTranscript += event.results[i][0].transcript;
+          }
+
+          const currentText = combinedTranscript.trim();
+          if (currentText) {
+            speechBufferRef.current = currentText;
+            setAmbientSpeechTranscript(currentText);
+            setAmbientVoiceStatus('hearing');
+
+            if (silenceDebounceTimerRef.current) {
+              clearTimeout(silenceDebounceTimerRef.current);
+            }
+
+            // After 1.3s of conversational pause, auto-commit the query to the AI coach
+            silenceDebounceTimerRef.current = setTimeout(() => {
+              if (speechBufferRef.current.trim().length >= 3) {
+                handleProcessAmbientQuery(speechBufferRef.current);
+              }
+            }, 1300);
+          }
+        };
+
+        recognizer.onerror = (e) => {
+          if (e.error !== 'no-speech' && e.error !== 'aborted') {
+            console.warn('[HandsFreeVoice] Recognizer error:', e.error);
+          }
+        };
+
+        recognizer.onend = () => {
+          if (isDisposed) return;
+          // Restart recognition loop if still active
+          if (!ambientProcessingLockRef.current && !voiceCoachRef.current.isSpeakingActive()) {
+            setTimeout(() => {
+              if (!isDisposed) {
+                startListeningSession();
+              }
+            }, 250);
+          }
+        };
+
+        recognizer.start();
+        speechRecognizerRef.current = recognizer;
+      } catch (err) {
+        console.warn('[HandsFreeVoice] Recognizer start failed:', err);
+      }
+    };
+
+    startListeningSession();
+
     return () => {
-      if (recognizer) {
+      isDisposed = true;
+      if (silenceDebounceTimerRef.current) {
+        clearTimeout(silenceDebounceTimerRef.current);
+      }
+      if (speechRecognizerRef.current) {
         try {
-          recognizer.abort();
+          speechRecognizerRef.current.abort();
         } catch {}
       }
     };
-  }, [isCameraActive, isHandsFreeVoiceActive, jointAngles, repSnapshot, formAnalysis, sessionStatus]);
+  }, [isCameraActive, isHandsFreeVoiceActive, handleProcessAmbientQuery]);
 
   // Initialize stored sessions count from vault
   useEffect(() => {
@@ -813,19 +873,19 @@ export function PoseSessionView({ onFpsUpdate }) {
                 </div>
 
                 {/* Live Speech Recognition Transcript Pill (When patient is speaking) */}
-                {ambientVoiceStatus === 'listening' && ambientSpeechTranscript && (
-                  <div className="absolute top-16 left-3 z-20 bg-slate-950/95 border border-cyan-500/80 rounded-xl px-3 py-1.5 text-xs text-cyan-300 shadow-xl flex items-center gap-2 animate-fadeIn">
-                    <Mic className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
-                    <span>
+                {ambientSpeechTranscript && (
+                  <div className="absolute top-16 left-3 right-3 sm:right-auto z-20 bg-slate-950/95 border border-cyan-500/80 rounded-xl px-3.5 py-2 text-xs text-cyan-300 shadow-2xl flex items-center gap-2.5 animate-fadeIn backdrop-blur">
+                    <Mic className="w-4 h-4 text-cyan-400 animate-pulse shrink-0" />
+                    <span className="truncate">
                       Hearing: <strong className="text-white">&ldquo;{ambientSpeechTranscript}&rdquo;</strong>
                     </span>
                   </div>
                 )}
 
-                {ambientVoiceStatus === 'processing' && (
-                  <div className="absolute top-16 left-3 z-20 bg-slate-950/95 border border-cyan-500 rounded-xl px-3 py-1.5 text-xs text-cyan-300 shadow-xl flex items-center gap-2 animate-pulse">
-                    <Sparkles className="w-3.5 h-3.5 animate-spin" />
-                    <span>AI Coach is analyzing your live form & speaking back...</span>
+                {ambientVoiceStatus === 'processing' && !liveCoachResponseHUD && (
+                  <div className="absolute top-16 left-3 right-3 sm:right-auto z-20 bg-slate-950/95 border border-purple-500/80 rounded-xl px-3.5 py-2 text-xs text-purple-300 shadow-2xl flex items-center gap-2.5 animate-pulse backdrop-blur">
+                    <Sparkles className="w-4 h-4 text-purple-400 animate-spin shrink-0" />
+                    <span>Thinking & analyzing your form...</span>
                   </div>
                 )}
 

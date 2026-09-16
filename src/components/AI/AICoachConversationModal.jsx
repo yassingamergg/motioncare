@@ -81,12 +81,14 @@ export function AICoachConversationModal({
         rec.onstart = () => {
           setIsListening(true);
           setSpeechError(null);
+          speechTranscriptRef.current = '';
         };
 
         rec.onresult = (event) => {
           const transcript = Array.from(event.results)
             .map((result) => result[0].transcript)
             .join('');
+          speechTranscriptRef.current = transcript;
           setInputText(transcript);
         };
 
@@ -94,12 +96,17 @@ export function AICoachConversationModal({
           console.warn('[AICoach] Speech recognition error:', event.error);
           setIsListening(false);
           if (event.error !== 'no-speech') {
-            setSpeechError(`Voice input: ${event.error}`);
+            setSpeechError(`Voice input error (${event.error}). Please try again or type below.`);
           }
         };
 
         rec.onend = () => {
           setIsListening(false);
+          const finalSpoken = speechTranscriptRef.current.trim();
+          if (finalSpoken.length >= 2) {
+            handleSendMessage(finalSpoken);
+            speechTranscriptRef.current = '';
+          }
         };
 
         recognitionRef.current = rec;
@@ -108,22 +115,27 @@ export function AICoachConversationModal({
 
     return () => {
       if (recognitionRef.current) {
-        recognitionRef.current.abort();
+        try {
+          recognitionRef.current.abort();
+        } catch {}
       }
     };
   }, []);
 
   const toggleListening = () => {
     if (!recognitionRef.current) {
-      setSpeechError('Speech recognition is not supported in this browser. Please type your question.');
+      setSpeechError('Speech recognition is not supported in this browser. Please use Chrome/Edge or type your question.');
       return;
     }
 
     if (isListening) {
-      recognitionRef.current.stop();
+      try {
+        recognitionRef.current.stop();
+      } catch {}
       setIsListening(false);
     } else {
       setInputText('');
+      speechTranscriptRef.current = '';
       setSpeechError(null);
       try {
         recognitionRef.current.start();

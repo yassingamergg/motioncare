@@ -46,6 +46,10 @@ export class VoiceCoach {
 
     // Rep milestone tracking
     this.lastAnnouncedRep = 0;
+
+    // Active speech utterance state
+    this.isSpeaking = false;
+    this._speakingSafetyTimer = null;
   }
 
   /**
@@ -54,6 +58,31 @@ export class VoiceCoach {
    */
   isSupported() {
     return typeof window !== 'undefined' && 'speechSynthesis' in window;
+  }
+
+  /**
+   * Checks if the voice coach is actively speaking right now
+   * @returns {boolean}
+   */
+  isSpeakingActive() {
+    return Boolean(this.isSpeaking);
+  }
+
+  /**
+   * Immediately terminates any active speech
+   */
+  stopSpeaking() {
+    if (this._speakingSafetyTimer) {
+      clearTimeout(this._speakingSafetyTimer);
+      this._speakingSafetyTimer = null;
+    }
+    this.isSpeaking = false;
+    this.currentPriority = 0;
+    if (this.isSupported()) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
   }
 
   /**
@@ -75,9 +104,13 @@ export class VoiceCoach {
    * @param {string} text - Spoken clinical phrase
    * @param {number} priority - AUDIO_PRIORITY tier
    * @param {boolean} [force=false] - Bypass cooldown for high priority events
+   * @param {Function} [onComplete] - Callback fired when speech completes
    */
-  speak(text, priority = AUDIO_PRIORITY.FORM_CORRECTION, force = false) {
-    if (this.isMuted || !this.isSupported() || !text) return false;
+  speak(text, priority = AUDIO_PRIORITY.FORM_CORRECTION, force = false, onComplete = null) {
+    if (this.isMuted || !this.isSupported() || !text) {
+      if (onComplete) onComplete();
+      return false;
+    }
 
     const now = performance.now();
 
@@ -111,16 +144,33 @@ export class VoiceCoach {
         if (found) utterance.voice = found;
       }
 
+      this.isSpeaking = true;
+      if (this._speakingSafetyTimer) clearTimeout(this._speakingSafetyTimer);
+      // Safety auto-reset in case browser misses onend event
+      const estimatedDurationMs = (text.length * 85) + 1200;
+      this._speakingSafetyTimer = setTimeout(() => {
+        this.isSpeaking = false;
+        this.currentPriority = 0;
+        if (onComplete) onComplete();
+      }, estimatedDurationMs);
+
       utterance.onstart = () => {
         this.currentPriority = priority;
+        this.isSpeaking = true;
       };
 
       utterance.onend = () => {
+        if (this._speakingSafetyTimer) clearTimeout(this._speakingSafetyTimer);
         this.currentPriority = 0;
+        this.isSpeaking = false;
+        if (onComplete) onComplete();
       };
 
       utterance.onerror = () => {
+        if (this._speakingSafetyTimer) clearTimeout(this._speakingSafetyTimer);
         this.currentPriority = 0;
+        this.isSpeaking = false;
+        if (onComplete) onComplete();
       };
 
       synth.speak(utterance);
@@ -132,6 +182,8 @@ export class VoiceCoach {
       return true;
     } catch (err) {
       console.warn('[VoiceCoach] Speech synthesis error:', err);
+      this.isSpeaking = false;
+      if (onComplete) onComplete();
       return false;
     }
   }
