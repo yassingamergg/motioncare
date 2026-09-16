@@ -81,33 +81,41 @@ export function CloudSettingsModal({ isOpen, onClose, onConfigSaved }) {
       return;
     }
     setGeminiStatus('testing');
-    setGeminiMessage('Testing connection to Gemini 2.0 Flash...');
+    setGeminiMessage('Testing connection to Gemini API...');
     const startTime = performance.now();
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${geminiKey.trim()}`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: 'Respond with exactly: OK' }] }],
-          generationConfig: { maxOutputTokens: 10 },
-        }),
-      });
+    const candidateModels = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash'];
+    let lastError = null;
 
-      const elapsed = Math.round(performance.now() - startTime);
+    for (const model of candidateModels) {
+      try {
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey.trim()}`;
+        const response = await fetch(url, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{ parts: [{ text: 'Respond with exactly: OK' }] }],
+            generationConfig: { maxOutputTokens: 10 },
+          }),
+        });
 
-      if (response.ok) {
-        setGeminiStatus('success');
-        setGeminiMessage(`Verified in ${elapsed}ms! Gemini 2.0 Flash is live.`);
-      } else {
-        const errJson = await response.json().catch(() => ({}));
-        setGeminiStatus('error');
-        setGeminiMessage(errJson?.error?.message || `API Error: HTTP ${response.status}`);
+        const elapsed = Math.round(performance.now() - startTime);
+
+        if (response.ok) {
+          const modelName = model.replace('gemini-', 'Gemini ').replace('-', ' ');
+          setGeminiStatus('success');
+          setGeminiMessage(`Verified in ${elapsed}ms! ${modelName} is live.`);
+          return;
+        } else {
+          const errJson = await response.json().catch(() => ({}));
+          lastError = errJson?.error?.message || `HTTP ${response.status}`;
+        }
+      } catch (err) {
+        lastError = err.message;
       }
-    } catch (err) {
-      setGeminiStatus('error');
-      setGeminiMessage(`Network error: ${err.message}`);
     }
+
+    setGeminiStatus('error');
+    setGeminiMessage(`API Error: ${lastError || 'Failed to connect to Gemini'}`);
   };
 
   const handleSave = () => {
