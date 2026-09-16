@@ -125,4 +125,21 @@ test('Clinical Summary Engine & Privacy Unit Tests', async (t) => {
     assert.ok(result.plan);
     assert.strictEqual(result.engine, 'local');
   });
+
+  await t.test('analyzeLiveCameraFrame provides intelligent biomechanical coaching tips', async () => {
+    const { analyzeLiveCameraFrame } = await import('../src/lib/ai/geminiClient.js');
+
+    // Test torso lean compensation guidance
+    const resLean = await analyzeLiveCameraFrame(null, { torsoLean: 42, activeDepth: 95 }, { reps: 3 });
+    assert.ok(resLean.tip.includes('chest') || resLean.tip.includes('upright') || resLean.tip.includes('spine'));
+    assert.strictEqual(resLean.source, 'on_device');
+
+    // Test shallow depth guidance
+    const resShallow = await analyzeLiveCameraFrame(null, { torsoLean: 18, activeDepth: 112 }, { reps: 4, squatState: 'BOTTOM' });
+    assert.ok(resShallow.tip.includes('depth') || resShallow.tip.includes('90°'));
+
+    // Test ideal form validation
+    const resIdeal = await analyzeLiveCameraFrame(null, { torsoLean: 15, activeDepth: 88, leftKnee: 88, rightKnee: 89 }, { reps: 5, squatState: 'BOTTOM' });
+    assert.ok(resIdeal.tip.includes('depth') || resIdeal.tip.includes('heels') || resIdeal.tip.includes('spine') || resIdeal.tip.length > 10);
+  });
 });

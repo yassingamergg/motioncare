@@ -65,7 +65,7 @@ export function RecoveryProfileView({ onSwitchToLiveSession }) {
                 Patient Longitudinal Recovery Profile
               </h2>
               <span className="text-[11px] font-semibold px-2.5 py-0.5 rounded-full bg-cyan-950 border border-cyan-700 text-cyan-300">
-                Milestone 7 Active
+                Clinical AI Active
               </span>
             </div>
             <p className="text-xs sm:text-sm text-slate-400 mt-1 max-w-2xl">

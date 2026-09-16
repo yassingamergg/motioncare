@@ -16,7 +16,8 @@ import { PainReportModal } from '../../components/Feedback/PainReportModal';
 import { SessionSummaryModal } from '../../components/SessionSummary/SessionSummaryModal';
 import { VoiceCoach } from '../../lib/audio/voiceCoach';
 import { AudioControls } from '../../components/Audio/AudioControls';
-import { Eye, EyeOff, Layers, Sliders, CheckCircle, RefreshCw, AlertTriangle, Play, Square, Timer, RotateCcw, Database, Volume2 } from 'lucide-react';
+import { analyzeLiveCameraFrame } from '../../lib/ai/geminiClient';
+import { Eye, EyeOff, Layers, Sliders, CheckCircle, RefreshCw, AlertTriangle, Play, Square, Timer, RotateCcw, Database, Volume2, Sparkles, Bot, X } from 'lucide-react';
 
 export function PoseSessionView({ onFpsUpdate }) {
   // Model & detector state
@@ -110,6 +111,49 @@ export function PoseSessionView({ onFpsUpdate }) {
   const [isPrePainModalOpen, setIsPrePainModalOpen] = useState(false);
   const [isPostPainModalOpen, setIsPostPainModalOpen] = useState(false);
   const [isSummaryModalOpen, setIsSummaryModalOpen] = useState(false);
+
+  // Live Multimodal AI Visual Form Inspection State
+  const [aiVisionFeedback, setAiVisionFeedback] = useState(null);
+  const [isScanningVision, setIsScanningVision] = useState(false);
+  const [autoScanVision, setAutoScanVision] = useState(false);
+
+  const handleScanFormWithAI = useCallback(async () => {
+    if (isScanningVision || !isCameraActive) return;
+    setIsScanningVision(true);
+    try {
+      const source = canvasRef.current || videoRef.current;
+      const res = await analyzeLiveCameraFrame(source, jointAngles, {
+        reps: repSnapshot?.reps || 0,
+        squatState: repSnapshot?.state || 'ACTIVE',
+        exerciseName: 'Bodyweight Squat',
+      });
+      if (res && res.tip) {
+        setAiVisionFeedback({
+          tip: res.tip,
+          source: res.source,
+          timestamp: Date.now(),
+        });
+        voiceCoachRef.current.speak(res.tip, 90, true);
+      }
+    } catch (err) {
+      console.error('[MotionCare AI] Live vision scan error:', err);
+    } finally {
+      setIsScanningVision(false);
+    }
+  }, [isScanningVision, isCameraActive, jointAngles, repSnapshot]);
+
+  // Periodic Auto-Coach Visual Form Audits (when enabled during active session)
+  useEffect(() => {
+    let interval = null;
+    if (autoScanVision && sessionStatus === SESSION_STATUS.ACTIVE && isCameraActive && trackingState === 'TRACKING') {
+      interval = setInterval(() => {
+        handleScanFormWithAI();
+      }, 10000);
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [autoScanVision, sessionStatus, isCameraActive, trackingState, handleScanFormWithAI]);
 
   // Initialize stored sessions count from vault
   useEffect(() => {
@@ -568,42 +612,113 @@ export function PoseSessionView({ onFpsUpdate }) {
               />
             </CameraFeed>
 
-            {/* Over-video quick toggles */}
+            {/* Over-video quick toggles & AI Vision Form Audit */}
             {isCameraActive && (
-              <div className="absolute top-3 right-3 z-20 flex items-center gap-1.5">
-                <AudioControls
-                  isMuted={isAudioMuted}
-                  onToggleMute={handleToggleAudioMute}
-                  volume={audioVolume}
-                  onVolumeChange={handleAudioVolumeChange}
-                  rate={audioRate}
-                  onRateChange={handleAudioRateChange}
-                  enableSfx={enableAudioSfx}
-                  onToggleSfx={handleToggleAudioSfx}
-                  onTestVoice={handleTestVoice}
-                />
-
-                <div className="flex items-center gap-1 bg-slate-950/85 backdrop-blur border border-slate-700/80 rounded-xl p-1 text-xs shadow-lg">
+              <>
+                {/* Top-Left: AI Vision Form Inspection Trigger */}
+                <div className="absolute top-3 left-3 z-20 flex items-center gap-1.5">
                   <button
-                    onClick={() => setShowSkeleton((prev) => !prev)}
-                    title="Toggle Skeleton Overlay"
-                    className={`p-1.5 rounded-lg transition cursor-pointer ${
-                      showSkeleton ? 'bg-cyan-950 text-cyan-300' : 'text-slate-400 hover:text-slate-200'
-                    }`}
+                    onClick={handleScanFormWithAI}
+                    disabled={isScanningVision}
+                    title="Ask AI Vision to inspect your live body form & posture"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-gradient-to-r from-purple-900/90 to-indigo-900/90 hover:from-purple-800 hover:to-indigo-800 border border-purple-600/80 text-purple-200 font-semibold text-xs shadow-lg backdrop-blur cursor-pointer transition disabled:opacity-50"
                   >
-                    <Layers className="w-4 h-4" />
+                    <Sparkles className={`w-3.5 h-3.5 text-purple-300 ${isScanningVision ? 'animate-spin' : ''}`} />
+                    <span>{isScanningVision ? 'Scanning Form...' : 'AI Vision Scan'}</span>
                   </button>
+
                   <button
-                    onClick={() => setShowAngles((prev) => !prev)}
-                    title="Toggle Angle Tags"
-                    className={`p-1.5 rounded-lg transition cursor-pointer ${
-                      showAngles ? 'bg-cyan-950 text-cyan-300' : 'text-slate-400 hover:text-slate-200'
+                    onClick={() => setAutoScanVision((prev) => !prev)}
+                    title="Toggle Periodic AI Visual Form Audits"
+                    className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold border backdrop-blur transition cursor-pointer flex items-center gap-1 ${
+                      autoScanVision
+                        ? 'bg-purple-950/90 border-purple-500 text-purple-200 shadow-md shadow-purple-950/50'
+                        : 'bg-slate-950/80 border-slate-700/80 text-slate-400 hover:text-slate-200'
                     }`}
                   >
-                    {showAngles ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                    <Bot className="w-3.5 h-3.5" />
+                    <span>Auto-Coach: {autoScanVision ? 'ON' : 'OFF'}</span>
                   </button>
                 </div>
-              </div>
+
+                {/* Top-Right: Audio & View Controls */}
+                <div className="absolute top-3 right-3 z-20 flex items-center gap-1.5">
+                  <AudioControls
+                    isMuted={isAudioMuted}
+                    onToggleMute={handleToggleAudioMute}
+                    volume={audioVolume}
+                    onVolumeChange={handleAudioVolumeChange}
+                    rate={audioRate}
+                    onRateChange={handleAudioRateChange}
+                    enableSfx={enableAudioSfx}
+                    onToggleSfx={handleToggleAudioSfx}
+                    onTestVoice={handleTestVoice}
+                  />
+
+                  <div className="flex items-center gap-1 bg-slate-950/85 backdrop-blur border border-slate-700/80 rounded-xl p-1 text-xs shadow-lg">
+                    <button
+                      onClick={() => setShowSkeleton((prev) => !prev)}
+                      title="Toggle Skeleton Overlay"
+                      className={`p-1.5 rounded-lg transition cursor-pointer ${
+                        showSkeleton ? 'bg-cyan-950 text-cyan-300' : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      <Layers className="w-4 h-4" />
+                    </button>
+                    <button
+                      onClick={() => setShowAngles((prev) => !prev)}
+                      title="Toggle Angle Tags"
+                      className={`p-1.5 rounded-lg transition cursor-pointer ${
+                        showAngles ? 'bg-cyan-950 text-cyan-300' : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      {showAngles ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Bottom Overlay: AI Vision Live Coaching Pill */}
+                {aiVisionFeedback && (
+                  <div className="absolute bottom-4 left-3 right-3 z-20 bg-slate-950/90 backdrop-blur-md border border-purple-500/50 rounded-2xl p-3 shadow-2xl animate-fadeIn flex items-start justify-between gap-3 text-xs text-purple-200">
+                    <div className="flex items-start gap-2.5">
+                      <div className="w-7 h-7 rounded-lg bg-purple-950 border border-purple-700 flex items-center justify-center text-purple-400 shrink-0 mt-0.5">
+                        <Sparkles className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <span className="font-bold text-white text-[11px] uppercase tracking-wide">
+                            AI Visual Biomechanics Coach
+                          </span>
+                          <span className="text-[10px] px-1.5 py-0.2 rounded-full bg-purple-950 border border-purple-700 text-purple-300 font-mono">
+                            {aiVisionFeedback.source === 'cloud_vision' ? 'Cloud Vision AI' : 'Kinematic Engine'}
+                          </span>
+                        </div>
+                        <p className="text-slate-200 text-xs leading-relaxed font-medium">
+                          {aiVisionFeedback.tip}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-1 shrink-0">
+                      <button
+                        onClick={handleScanFormWithAI}
+                        disabled={isScanningVision}
+                        title="Re-scan Form"
+                        className="p-1 rounded-lg hover:bg-slate-800 text-purple-300 transition cursor-pointer"
+                      >
+                        <RefreshCw className={`w-3.5 h-3.5 ${isScanningVision ? 'animate-spin' : ''}`} />
+                      </button>
+                      <button
+                        onClick={() => setAiVisionFeedback(null)}
+                        title="Dismiss"
+                        className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
 

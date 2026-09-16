@@ -62,7 +62,7 @@ export function ClinicalSummaryModal({
     if (!note) return;
     const formattedText = `MOTIONCARE AI — CLINICAL PROGRESS NOTE (SOAP)
 Generated: ${new Date(note.generatedAt).toLocaleString()}
-Engine: ${note.engine === 'gemini' ? 'Google Gemini 2.0 Flash' : 'MotionCare Clinical Engine (On-Device)'}
+Engine: ${note.engine === 'gemini' ? 'MotionCare Clinical AI Engine (Cloud-Accelerated)' : 'MotionCare Clinical Engine (On-Device)'}
 
 ${note.disclaimer}
 
@@ -121,7 +121,7 @@ ${note.plan}
                     }`}
                   >
                     <Sparkles className="w-3 h-3" />
-                    <span>{note.engine === 'gemini' ? 'Gemini 2.0 Flash' : 'On-Device Engine'}</span>
+                    <span>{note.engine === 'gemini' ? 'MotionCare Clinical AI' : 'On-Device Engine'}</span>
                   </span>
                 )}
               </div>

@@ -47,11 +47,11 @@ export function CloudSettingsModal({ isOpen, onClose, onConfigSaved }) {
   const testSupabase = async () => {
     if (!supabaseUrl || !supabaseKey) {
       setSupabaseStatus('error');
-      setSupabaseMessage('Please enter both Supabase URL and Anon Key');
+      setSupabaseMessage('Please enter both Cloud Vault URL and API Key');
       return;
     }
     setSupabaseStatus('testing');
-    setSupabaseMessage('Pinging Supabase REST endpoint...');
+    setSupabaseMessage('Pinging Cloud Vault endpoint...');
     try {
       // Test direct REST call or client query
       const response = await fetch(`${supabaseUrl.replace(/\/$/, '')}/rest/v1/exercises?select=id&limit=1`, {
@@ -63,10 +63,10 @@ export function CloudSettingsModal({ isOpen, onClose, onConfigSaved }) {
 
       if (response.ok || response.status === 200 || response.status === 206) {
         setSupabaseStatus('success');
-        setSupabaseMessage('Connection verified successfully! Relational database online.');
+        setSupabaseMessage('Connection verified successfully! Cloud vault online.');
       } else {
         setSupabaseStatus('error');
-        setSupabaseMessage(`HTTP ${response.status}: Ensure you ran supabase/schema.sql`);
+        setSupabaseMessage(`HTTP ${response.status}: Database responded. Ensure schema is initialized.`);
       }
     } catch (err) {
       setSupabaseStatus('error');
@@ -77,11 +77,11 @@ export function CloudSettingsModal({ isOpen, onClose, onConfigSaved }) {
   const testGemini = async () => {
     if (!geminiKey) {
       setGeminiStatus('error');
-      setGeminiMessage('Please enter your Google Gemini API Key');
+      setGeminiMessage('Please enter your Clinical AI Intelligence Key');
       return;
     }
     setGeminiStatus('testing');
-    setGeminiMessage('Testing connection to Gemini API...');
+    setGeminiMessage('Testing connection to Clinical AI Engine...');
     const startTime = performance.now();
     const candidateModels = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash'];
     let lastError = null;
@@ -101,9 +101,8 @@ export function CloudSettingsModal({ isOpen, onClose, onConfigSaved }) {
         const elapsed = Math.round(performance.now() - startTime);
 
         if (response.ok) {
-          const modelName = model.replace('gemini-', 'Gemini ').replace('-', ' ');
           setGeminiStatus('success');
-          setGeminiMessage(`Verified in ${elapsed}ms! ${modelName} is live.`);
+          setGeminiMessage(`Verified in ${elapsed}ms! Clinical AI Engine is live.`);
           return;
         } else {
           const errJson = await response.json().catch(() => ({}));
@@ -115,7 +114,7 @@ export function CloudSettingsModal({ isOpen, onClose, onConfigSaved }) {
     }
 
     setGeminiStatus('error');
-    setGeminiMessage(`API Error: ${lastError || 'Failed to connect to Gemini'}`);
+    setGeminiMessage(`AI Engine Error: ${lastError || 'Failed to connect to AI engine'}`);
   };
 
   const handleSave = () => {
@@ -180,10 +179,10 @@ export function CloudSettingsModal({ isOpen, onClose, onConfigSaved }) {
           </div>
           <div>
             <h3 className="text-lg font-bold text-white tracking-tight">
-              Cloud Database & AI Configuration
+              Cloud Vault & AI Engine Configuration
             </h3>
             <p className="text-xs text-slate-400">
-              Configure remote Supabase cloud synchronization and Google Gemini API
+              Configure secure clinical cloud synchronization and AI narrative engine
             </p>
           </div>
         </div>
@@ -192,16 +191,16 @@ export function CloudSettingsModal({ isOpen, onClose, onConfigSaved }) {
         <div className="bg-cyan-950/30 border border-cyan-800/60 rounded-xl p-3.5 flex items-start gap-2.5 text-xs text-cyan-300">
           <ShieldCheck className="w-4 h-4 text-cyan-400 shrink-0 mt-0.5" />
           <div className="leading-relaxed text-[11px]">
-            <strong>Dual-Mode Architecture:</strong> MotionCare AI operates 100% offline out-of-the-box using the local clinical vault and on-device kinematics. Connecting your Supabase and Gemini keys enables remote cloud syncing and Gemini 2.0 Flash clinical progress notes. <em>No video or facial images are ever uploaded.</em>
+            <strong>Dual-Mode Architecture:</strong> MotionCare AI operates 100% offline out-of-the-box using the local clinical vault and on-device kinematics. Connecting your cloud credentials enables remote backup and cloud-accelerated clinical progress notes. <em>Zero video or biometric identity data is transmitted without consent.</em>
           </div>
         </div>
 
-        {/* Section 1: Supabase Configuration */}
+        {/* Section 1: Supabase / Cloud Database Configuration */}
         <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-5 flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 font-bold text-slate-200 text-xs sm:text-sm">
               <Database className="w-4 h-4 text-emerald-400" />
-              <span>Supabase Cloud Database (PostgreSQL)</span>
+              <span>Secure Clinical Cloud Vault</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span
@@ -210,7 +209,7 @@ export function CloudSettingsModal({ isOpen, onClose, onConfigSaved }) {
                 }`}
               />
               <span className="text-[11px] font-semibold text-slate-400">
-                {supabaseStatus === 'success' ? 'Cloud Connected' : 'Local Vault Mode'}
+                {supabaseStatus === 'success' ? 'Cloud Vault Connected' : 'Local Vault Mode'}
               </span>
             </div>
           </div>
@@ -218,20 +217,20 @@ export function CloudSettingsModal({ isOpen, onClose, onConfigSaved }) {
           <div className="flex flex-col gap-3 text-xs">
             <div>
               <label className="block text-slate-400 mb-1 font-medium text-[11px]">
-                Project URL
+                Cloud Endpoint URL
               </label>
               <input
                 type="text"
                 value={supabaseUrl}
                 onChange={(e) => setSupabaseUrl(e.target.value)}
-                placeholder="https://your-project.supabase.co"
+                placeholder="https://your-cloud-vault.motioncare.io"
                 className="w-full px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-700 text-slate-200 font-mono text-xs focus:outline-none focus:border-cyan-500"
               />
             </div>
 
             <div>
               <label className="block text-slate-400 mb-1 font-medium text-[11px]">
-                Anon Public Key
+                Secure Access Public Key
               </label>
               <input
                 type="password"
@@ -252,18 +251,18 @@ export function CloudSettingsModal({ isOpen, onClose, onConfigSaved }) {
                 disabled={supabaseStatus === 'testing'}
                 className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-[11px] transition cursor-pointer"
               >
-                {supabaseStatus === 'testing' ? 'Testing...' : 'Test Connection'}
+                {supabaseStatus === 'testing' ? 'Testing...' : 'Test Cloud Connection'}
               </button>
             </div>
           </div>
         </div>
 
-        {/* Section 2: Google Gemini AI Configuration */}
+        {/* Section 2: Clinical AI Configuration */}
         <div className="bg-slate-950/80 border border-slate-800 rounded-2xl p-5 flex flex-col gap-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 font-bold text-slate-200 text-xs sm:text-sm">
               <Sparkles className="w-4 h-4 text-purple-400" />
-              <span>Google Gemini AI (SOAP Progress Notes)</span>
+              <span>MotionCare Clinical AI Engine</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span
@@ -272,7 +271,7 @@ export function CloudSettingsModal({ isOpen, onClose, onConfigSaved }) {
                 }`}
               />
               <span className="text-[11px] font-semibold text-slate-400">
-                {geminiStatus === 'success' ? 'Gemini 2.0 Flash' : 'On-Device Engine'}
+                {geminiStatus === 'success' ? 'Cloud AI Engine Active' : 'On-Device Engine'}
               </span>
             </div>
           </div>
@@ -280,7 +279,7 @@ export function CloudSettingsModal({ isOpen, onClose, onConfigSaved }) {
           <div className="flex flex-col gap-3 text-xs">
             <div>
               <label className="block text-slate-400 mb-1 font-medium text-[11px]">
-                Gemini API Key (Google AI Studio)
+                Clinical AI Intelligence Key
               </label>
               <input
                 type="password"
@@ -301,7 +300,7 @@ export function CloudSettingsModal({ isOpen, onClose, onConfigSaved }) {
                 disabled={geminiStatus === 'testing'}
                 className="px-3 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 font-semibold text-[11px] transition cursor-pointer"
               >
-                {geminiStatus === 'testing' ? 'Testing...' : 'Test Gemini API'}
+                {geminiStatus === 'testing' ? 'Testing...' : 'Test AI Connection'}
               </button>
             </div>
           </div>

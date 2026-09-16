@@ -144,7 +144,7 @@ function parseGeminiSoapResponse(rawText, title, subtitle) {
 
   return {
     title: title || 'Clinical Progress Note (SOAP)',
-    subtitle: subtitle || 'Generated via Gemini AI Telemetry Analysis',
+    subtitle: subtitle || 'Generated via Clinical AI Telemetry Analysis',
     subjective: subjective || 'Patient baseline and post-exercise VAS scores recorded.',
     objective: objective || 'On-device computer vision kinematic telemetry compiled.',
     assessment: assessment || rawText.trim(),
@@ -157,13 +157,7 @@ function parseGeminiSoapResponse(rawText, title, subtitle) {
 }
 
 /**
- * Orchestrates clinical progress note generation.
- * If VITE_GEMINI_API_KEY is present, calls the Gemini REST API.
- * Otherwise, falls back gracefully to the deterministic clinical narrative engine.
- *
- * @param {Object} payload - Session summary or longitudinal metrics
-/**
- * Retrieves Gemini API key from environment variable or local storage
+ * Retrieves AI API key from environment variable or local storage
  * @returns {string}
  */
 export function getGeminiApiKey() {
@@ -180,8 +174,144 @@ export function getGeminiApiKey() {
 }
 
 /**
+ * Captures a lightweight JPEG base64 snapshot from a video or canvas element.
+ * @param {HTMLVideoElement|HTMLCanvasElement} sourceElement
+ * @returns {string|null} base64 string without data:image/jpeg;base64, prefix
+ */
+function captureFrameBase64(sourceElement) {
+  try {
+    if (!sourceElement) return null;
+    let canvas = sourceElement;
+    if (sourceElement instanceof HTMLVideoElement) {
+      if (!sourceElement.videoWidth || !sourceElement.videoHeight) return null;
+      canvas = document.createElement('canvas');
+      canvas.width = Math.min(640, sourceElement.videoWidth);
+      canvas.height = Math.min(480, sourceElement.videoHeight);
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(sourceElement, 0, 0, canvas.width, canvas.height);
+    }
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.7);
+    const parts = dataUrl.split(',');
+    return parts.length > 1 ? parts[1] : null;
+  } catch (err) {
+    console.warn('[MotionCare AI] Failed to capture frame snapshot:', err);
+    return null;
+  }
+}
+
+/**
+ * Multimodal Live AI Visual Form Inspection:
+ * Inspects the live camera video frame + joint kinematics and delivers real-time physical therapy coaching.
+ *
+ * @param {HTMLVideoElement|HTMLCanvasElement} mediaElement
+ * @param {Object} jointAngles - { leftKnee, rightKnee, torsoLean, activeDepth }
+ * @param {Object} context - { reps, squatState, exerciseName }
+ * @returns {Promise<Object>} { tip: string, source: 'cloud_vision'|'on_device' }
+ */
+export async function analyzeLiveCameraFrame(mediaElement, jointAngles = {}, context = {}) {
+  const apiKey = getGeminiApiKey();
+  const { leftKnee, rightKnee, torsoLean, activeDepth } = jointAngles;
+  const { reps = 0, squatState = 'ACTIVE', exerciseName = 'Bodyweight Squat' } = context;
+
+  // On-device deterministic clinical fallback
+  const getFallbackTip = () => {
+    if (torsoLean != null && torsoLean > 35) {
+      return 'Keep your chest lifted and spine upright to reduce lumbar shear forces.';
+    }
+    if (activeDepth != null && activeDepth > 105 && squatState === 'BOTTOM') {
+      return 'Aim for a deeper squat descent toward 90° knee flexion if joint comfort permits.';
+    }
+    if (activeDepth != null && activeDepth <= 90) {
+      return 'Excellent functional depth achieved! Drive evenly through your heels as you rise.';
+    }
+    if (leftKnee != null && rightKnee != null && Math.abs(leftKnee - rightKnee) > 15) {
+      return 'Maintain symmetrical weight distribution across both legs during descent.';
+    }
+    return 'Maintain controlled tempo, neutral spine, and track your knees in line with your toes.';
+  };
+
+  if (!apiKey || !mediaElement) {
+    return {
+      tip: getFallbackTip(),
+      source: 'on_device',
+    };
+  }
+
+  const base64Image = captureFrameBase64(mediaElement);
+  if (!base64Image) {
+    return {
+      tip: getFallbackTip(),
+      source: 'on_device',
+    };
+  }
+
+  const promptText = `You are MotionCare AI, an expert physical therapy visual biomechanics coach. You are viewing a live camera frame of a patient performing ${exerciseName}.
+Current Real-Time Kinematics:
+- Left Knee Flexion: ${leftKnee != null ? Math.round(leftKnee) + '°' : 'N/A'}
+- Right Knee Flexion: ${rightKnee != null ? Math.round(rightKnee) + '°' : 'N/A'}
+- Torso Lean: ${torsoLean != null ? Math.round(torsoLean) + '°' : 'N/A'}
+- Movement Phase: ${squatState}
+- Repetitions: ${reps}
+
+Analyze the user's posture, spinal alignment, knee tracking, depth, and camera setup in this frame.
+Provide 1 concise, direct, supportive physical therapy coaching tip (maximum 20 words). Speak directly to the patient. Do not include markdown asterisks or quotes.`;
+
+  const candidateModels = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash'];
+
+  for (const model of candidateModels) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey.trim()}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [
+            {
+              parts: [
+                {
+                  inline_data: {
+                    mime_type: 'image/jpeg',
+                    data: base64Image,
+                  },
+                },
+                {
+                  text: promptText,
+                },
+              ],
+            },
+          ],
+          generationConfig: {
+            temperature: 0.3,
+            maxOutputTokens: 60,
+          },
+        }),
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const text = data?.candidates?.[0]?.content?.parts?.[0]?.text;
+        if (text && text.trim()) {
+          const cleanTip = text.trim().replace(/^["']|["']$/g, '').replace(/\*/g, '');
+          return {
+            tip: cleanTip,
+            source: 'cloud_vision',
+          };
+        }
+      }
+    } catch (err) {
+      console.warn(`[MotionCare AI] Multimodal vision request failed with ${model}:`, err);
+    }
+  }
+
+  return {
+    tip: getFallbackTip(),
+    source: 'on_device',
+  };
+}
+
+/**
  * Orchestrates clinical progress note generation.
- * If VITE_GEMINI_API_KEY or stored key is present, calls the Gemini REST API.
+ * If API key is present, calls the AI REST API.
  * Otherwise, falls back gracefully to the deterministic clinical narrative engine.
  *
  * @param {Object} payload - Session summary or longitudinal metrics
@@ -192,7 +322,7 @@ export async function generateClinicalProgressNote(payload, options = {}) {
   const { isLongitudinal = false, sessions = [] } = options;
   const apiKey = getGeminiApiKey();
 
-  // If no Gemini API key configured, use local clinical engine
+  // If no AI key configured, use local clinical engine
   if (!apiKey) {
     return generateDeterministicClinicalSummary(payload, isLongitudinal);
   }
@@ -205,7 +335,6 @@ export async function generateClinicalProgressNote(payload, options = {}) {
     // List of models to try in order of capability & speed
     const candidateModels = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-1.5-flash'];
     let candidateText = null;
-    let successfulModel = 'Gemini 2.0 Flash';
 
     for (const model of candidateModels) {
       try {
@@ -234,7 +363,6 @@ export async function generateClinicalProgressNote(payload, options = {}) {
           const data = await response.json();
           candidateText = data?.candidates?.[0]?.content?.parts?.[0]?.text;
           if (candidateText) {
-            successfulModel = model.replace('gemini-', 'Gemini ').replace('-', ' ');
             break;
           }
         }
@@ -244,7 +372,7 @@ export async function generateClinicalProgressNote(payload, options = {}) {
     }
 
     if (!candidateText) {
-      console.warn('[MotionCare AI] All Gemini API endpoints failed. Using on-device fallback.');
+      console.warn('[MotionCare AI] Cloud AI endpoints failed. Using on-device fallback.');
       return generateDeterministicClinicalSummary(payload, isLongitudinal);
     }
 
@@ -252,12 +380,12 @@ export async function generateClinicalProgressNote(payload, options = {}) {
       ? 'Longitudinal Physical Therapy Progress Briefing'
       : 'Clinical Exercise Progress Note (SOAP)';
     const subtitle = isLongitudinal
-      ? `Aggregated Telemetry across ${payload.totalSessions} Sessions • ${successfulModel}`
-      : `${payload.exerciseName || 'Bodyweight Squat'} • ${successfulModel}`;
+      ? `Aggregated Telemetry across ${payload.totalSessions} Sessions • Clinical AI Engine`
+      : `${payload.exerciseName || 'Bodyweight Squat'} • Clinical AI Engine`;
 
     return parseGeminiSoapResponse(candidateText, title, subtitle);
   } catch (err) {
-    console.error('[MotionCare AI] Network error calling Gemini API:', err);
+    console.error('[MotionCare AI] Network error calling AI API:', err);
     return generateDeterministicClinicalSummary(payload, isLongitudinal);
   }
 }

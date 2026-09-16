@@ -237,7 +237,7 @@ export function SessionSummaryModal({
           <span>Storage Status:</span>
           <span className="font-mono flex items-center gap-1.5 font-semibold text-slate-300">
             {saveStatus === 'saving' && <span className="text-cyan-400 animate-pulse">Syncing session...</span>}
-            {saveStatus === 'saved_supabase' && <span className="text-emerald-400">☁️ Synced to Supabase Cloud</span>}
+            {saveStatus === 'saved_supabase' && <span className="text-emerald-400">☁️ Synced to Secure Clinical Cloud</span>}
             {saveStatus === 'saved_local' && <span className="text-teal-400">💾 Stored in Local Clinical Vault</span>}
           </span>
         </div>
@@ -248,7 +248,7 @@ export function SessionSummaryModal({
           className="w-full mb-4 py-2.5 px-4 rounded-xl bg-gradient-to-r from-purple-950/70 via-slate-900 to-indigo-950/70 hover:from-purple-900/80 hover:to-indigo-900/80 border border-purple-800/60 text-purple-200 font-semibold text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-md group"
         >
           <Sparkles className="w-4 h-4 text-purple-400 group-hover:scale-110 transition" />
-          <span>Draft Clinician Progress Note (Gemini AI SOAP)</span>
+          <span>Draft Clinician Progress Note (Clinical AI SOAP)</span>
         </button>
 
         {/* Modal Actions */}

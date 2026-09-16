@@ -87,7 +87,7 @@ export function Header({
           {onOpenSettings && (
             <button
               onClick={onOpenSettings}
-              title="Cloud & AI Settings (Supabase + Gemini)"
+              title="Cloud Vault & Clinical AI Settings"
               className="p-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 border border-slate-700 text-slate-300 hover:text-white transition cursor-pointer flex items-center justify-center"
             >
               <Settings className="w-4 h-4 text-cyan-400" />
