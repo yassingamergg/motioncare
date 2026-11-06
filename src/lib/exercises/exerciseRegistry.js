@@ -1,0 +1,167 @@
+import { measurementStrategies } from './measurements.js';
+
+export const exerciseCategories = ['Knee', 'Hip', 'Ankle', 'Shoulder', 'Elbow', 'Core', 'Back', 'Balance'];
+const lower = ['shoulder', 'hip', 'knee', 'ankle'];
+const upper = ['hip', 'shoulder', 'elbow', 'wrist'];
+const rule = (metric, max, message, weight = 1) => ({ metric, max, message, weight });
+const definitions = [
+  { id: 'squat', name: 'Bodyweight Squat', category: 'Knee', strategy: 'squat', requiredLandmarks: lower,
+    metric: 'Knee angle', target: 80, start: 30, rest: 20, phases: ['STANDING', 'DESCENDING', 'BOTTOM', 'ASCENDING'],
+    positioning: 'Stand side-on to the camera. Keep shoulders, hips, knees, and feet visible. Start upright.',
+    limitation: 'Side view measures depth but cannot reliably judge inward knee movement. Use both sides only when both legs are visible.',
+    trackedJoints: ['hip', 'knee', 'ankle', 'torso'], cue: 'Stay within your prescribed range as you lower.',
+    rules: [rule('torsoAngle', 45, 'Keep your chest steady.', 1.5)], metricKeys: ['hipAngle', 'kneeAngle', 'squatDepth', 'ankleX', 'ankleY', 'torsoAngle'] },
+  { id: 'sit-to-stand', name: 'Sit to Stand', category: 'Hip', strategy: 'sitToStand', requiredLandmarks: lower,
+    metric: 'Knee extension', target: 65, start: 20, rest: 12, phases: ['SITTING', 'RISING', 'STANDING', 'LOWERING'],
+    positioning: 'Place a stable chair side-on to the camera. Start seated with feet on the floor and your whole body visible.',
+    limitation: 'The camera cannot verify chair stability or assistance from your hands. Stand fully, then return to sitting for one cycle.',
+    trackedJoints: ['hip', 'knee', 'torso'], cue: 'Lean forward slightly before standing.',
+    rules: [rule('torsoAngle', 50, 'Keep your rise steady.')], metricKeys: ['hipAngle', 'kneeAngle', 'standingHeight', 'torsoAngle'] },
+  { id: 'straight-leg-raise', name: 'Straight Leg Raise', category: 'Hip', strategy: 'straightLegRaise', requiredLandmarks: lower,
+    metric: 'Leg elevation', target: 35, start: 12, rest: 7, phases: ['REST', 'LEG RAISE', 'TARGET HEIGHT', 'LOWER'],
+    positioning: 'Lie on your back, side-on to a low camera. Select the visible leg. Start with that leg extended on the floor.',
+    limitation: 'Keep the camera level with your body. Foreshortening or an obscured hip can distort elevation.',
+    trackedJoints: ['hip', 'knee', 'ankle'], cue: 'Lift only within your prescribed range.',
+    rules: [{ metric: 'kneeAngle', min: 155, message: 'Keep your knee straight.', weight: 2 }], metricKeys: ['hipAngle', 'kneeAngle', 'legElevation', 'ankleY'] },
+  { id: 'knee-extension', name: 'Knee Extension', category: 'Knee', strategy: 'kneeExtension', mode: 'rom', requiredLandmarks: lower,
+    metric: 'Knee angle', target: 65, start: 15, rest: 10, phases: ['BENT', 'EXTENDING', 'EXTENDED', 'RETURNING'],
+    positioning: 'Sit side-on with your thigh supported. Start with your knee bent about a right angle; extend and return.',
+    limitation: 'A chair can obscure the hip. ROM cycles use a configurable minimum excursion; reaching the example target is not required.',
+    trackedJoints: ['hip', 'knee', 'ankle'], cue: 'Extend within your prescribed range.',
+    rules: [rule('torsoAngle', 25, 'Keep your torso still.')], metricKeys: ['kneeAngle', 'hipAngle', 'lowerLegAngle', 'extensionROM'] },
+  { id: 'heel-slide', name: 'Heel Slide', category: 'Knee', strategy: 'heelSlide', requiredLandmarks: [...lower, 'heel'],
+    metric: 'Knee angle', target: 70, start: 22, rest: 12, phases: ['LEG EXTENDED', 'HEEL IN', 'MAX FLEXION', 'HEEL RETURNS'],
+    positioning: 'Lie on your back, side-on to a low camera. Start with the selected leg extended, then slide the heel toward you.',
+    limitation: 'Vision cannot confirm floor contact. Keep the heel on the surface; lifts can resemble a slide.',
+    trackedJoints: ['hip', 'knee', 'heel'], cue: 'Slide slowly within your prescribed range.',
+    rules: [rule('hipElevation', 0.25, 'Keep your upper body resting.')], metricKeys: ['kneeAngle', 'hipAngle', 'heelDistance', 'flexionROM'] },
+  { id: 'calf-raise', name: 'Calf Raise', category: 'Ankle', strategy: 'calfRaise', requiredLandmarks: [...lower, 'heel', 'footIndex'],
+    metric: 'Heel lift', unit: 'leg lengths', target: 0.12, start: 0.035, rest: 0.018, relativeBaseline: true,
+    phases: ['HEEL DOWN', 'HEEL RAISE', 'TOP', 'HEEL LOWER'],
+    positioning: 'Stand side-on with feet fully visible. Start with heels down, then lift and lower your heels.',
+    limitation: 'Shoes, floor occlusion, and camera angle affect small heel movements. Lift is relative to lower-leg length, not centimetres.',
+    trackedJoints: ['ankle', 'heel', 'knee'], cue: 'Lift your heels with control.',
+    rules: [{ metric: 'kneeAngle', min: 155, message: 'Keep your knees steady.', weight: 1.5 }, rule('balanceOffset', 20, 'Steady your upper body.')],
+    metricKeys: ['heelElevation', 'kneeAngle', 'ankleY', 'balanceOffset'] },
+  { id: 'shoulder-flexion', name: 'Shoulder Flexion', category: 'Shoulder', strategy: 'shoulderFlexion', mode: 'rom', requiredLandmarks: upper,
+    metric: 'Arm elevation', target: 90, start: 20, rest: 10, phases: ['ARM DOWN', 'ARM RAISE', 'TARGET HEIGHT', 'ARM LOWER'],
+    positioning: 'Stand side-on, with the selected arm nearest the camera. Start with your arm down; lift forward and return.',
+    limitation: 'Flexion and abduction cannot be distinguished reliably without the instructed camera view. Targets are examples only.',
+    trackedJoints: ['shoulder', 'elbow', 'wrist'], cue: 'Raise your arm within your prescribed range.',
+    rules: [{ metric: 'elbowAngle', min: 150, message: 'Keep your elbow extended.', weight: 1.5 }, rule('torsoAngle', 20, 'Keep your torso steady.')],
+    metricKeys: ['shoulderAngle', 'elbowAngle', 'wristX', 'wristY', 'armElevation'] },
+  { id: 'shoulder-abduction', name: 'Shoulder Abduction', category: 'Shoulder', strategy: 'shoulderAbduction', mode: 'rom', requiredLandmarks: upper,
+    metric: 'Arm elevation', target: 90, start: 20, rest: 10, defaultSide: 'both', phases: ['ARM AT SIDE', 'ARM OUT', 'TARGET HEIGHT', 'ARM RETURNS'],
+    positioning: 'Face the camera. Keep both arms and wrists in frame. Start with arms at your sides, then raise outward.',
+    limitation: 'Forward movement may look like reduced outward elevation. Keep the movement in the camera plane.',
+    trackedJoints: ['shoulder', 'elbow', 'wrist'], cue: 'Lift outward within your prescribed range.',
+    rules: [{ metric: 'elbowAngle', min: 150, message: 'Keep your elbows extended.', weight: 1 }, rule('torsoAngle', 20, 'Keep your torso steady.')],
+    metricKeys: ['shoulderAngle', 'armElevation', 'pathOffset', 'elbowAngle'] },
+  { id: 'bicep-curl', name: 'Bicep Curl', category: 'Elbow', strategy: 'bicepCurl', requiredLandmarks: ['shoulder', 'elbow', 'wrist'],
+    metric: 'Elbow angle', target: 100, start: 28, rest: 16, phases: ['ARM EXTENDED', 'ELBOW FLEXION', 'TOP', 'ELBOW EXTENSION'],
+    positioning: 'Stand side-on with your working arm visible. Begin with your elbow extended and your upper arm beside you.',
+    limitation: 'Shoulder rotation and wrist occlusion affect the elbow estimate. Keep the movement in profile.',
+    trackedJoints: ['elbow', 'wrist', 'shoulder'], cue: 'Curl while keeping your upper arm still.',
+    rules: [rule('upperArmTilt', 25, 'Keep your upper arm still.', 2)], metricKeys: ['elbowAngle', 'upperArmTilt', 'wristX', 'wristY'] },
+  { id: 'glute-bridge', name: 'Glute Bridge', category: 'Core', strategy: 'gluteBridge', requiredLandmarks: lower,
+    metric: 'Hip angle', target: 50, start: 20, rest: 12, phases: ['DOWN', 'HIP RAISE', 'TOP', 'HIP LOWER'],
+    positioning: 'Lie side-on to a low camera, knees bent and feet planted. Start with hips down; lift and return.',
+    limitation: 'The hip angle estimates body alignment; the camera cannot assess spinal loading or floor contact.',
+    trackedJoints: ['hip', 'knee', 'shoulder'], cue: 'Lift your hips within your prescribed range.',
+    rules: [{ metric: 'kneeAngle', min: 60, max: 120, message: 'Keep your knees steady.', weight: 1.5 }],
+    metricKeys: ['hipAngle', 'kneeAngle', 'hipElevation', 'shoulderHipAlignment'] },
+
+  // ─── New exercises ────────────────────────────────────────────────────────
+
+  { id: 'hip-hinge', name: 'Hip Hinge (Romanian Deadlift)', category: 'Back', strategy: 'hipHinge', requiredLandmarks: lower,
+    metric: 'Torso lean', target: 55, start: 15, rest: 8, phases: ['UPRIGHT', 'HINGING FORWARD', 'BOTTOM', 'RETURNING'],
+    positioning: 'Stand side-on to the camera, feet hip-width apart. Keep your knees soft and hinge at the hips, not the lower back.',
+    limitation: 'The camera measures torso lean angle. Keep the full body in frame and avoid rounding the spine.',
+    trackedJoints: ['hip', 'knee', 'shoulder'], cue: 'Push your hips back and keep a flat back.',
+    rules: [rule('kneeAngle', 155, 'Keep a soft bend in your knees.'), rule('torsoAngle', 70, 'Avoid over-rounding your back.', 2)],
+    metricKeys: ['torsoAngle', 'hipAngle', 'kneeAngle', 'hingeDepth'] },
+
+  { id: 'hip-abduction', name: 'Hip Abduction (Side-Lying)', category: 'Hip', strategy: 'hipAbduction', requiredLandmarks: lower,
+    metric: 'Leg elevation', target: 30, start: 8, rest: 5, phases: ['LEG DOWN', 'LEG RISING', 'TOP', 'LEG LOWERING'],
+    positioning: 'Lie on your side, side-on to a low camera. Keep your top leg straight and lift it toward the ceiling.',
+    limitation: 'Hip-to-ankle angle approximates elevation. Keep both legs visible and the camera level with your hips.',
+    trackedJoints: ['hip', 'knee', 'ankle'], cue: 'Lift your top leg slowly within your range.',
+    rules: [{ metric: 'kneeAngle', min: 150, message: 'Keep your top knee straight.', weight: 1.5 }],
+    metricKeys: ['hipAngle', 'kneeAngle', 'legElevation', 'ankleY'] },
+
+  { id: 'terminal-knee-extension', name: 'Terminal Knee Extension', category: 'Knee', strategy: 'terminalKneeExtension', requiredLandmarks: lower,
+    metric: 'Knee extension', target: 25, start: 8, rest: 5, phases: ['BENT', 'EXTENDING', 'FULL EXTENSION', 'RETURNING'],
+    positioning: 'Stand or sit side-on. Start with a slight bend; straighten your knee to full extension, then return.',
+    limitation: 'The last few degrees of extension are subtle. Keep the camera at knee height for best accuracy.',
+    trackedJoints: ['hip', 'knee', 'ankle'], cue: 'Squeeze your quad to reach full extension.',
+    rules: [rule('torsoAngle', 25, 'Avoid leaning your body.')],
+    metricKeys: ['kneeAngle', 'hipAngle', 'extensionROM', 'torsoAngle'] },
+
+  { id: 'standing-hip-flexion', name: 'Standing Hip Flexion (Leg Raise)', category: 'Hip', strategy: 'standingHipFlexion', requiredLandmarks: lower,
+    metric: 'Hip flexion', target: 60, start: 15, rest: 8, phases: ['LEG DOWN', 'LEG RISING', 'TARGET', 'LEG LOWERING'],
+    positioning: 'Stand side-on to the camera. Keep your standing leg straight. Lift the opposite leg forward without bending your trunk.',
+    limitation: 'Trunk lean can mask true hip flexion angle. Keep your spine upright and do not rock backward.',
+    trackedJoints: ['hip', 'knee', 'shoulder'], cue: 'Lift your thigh with control, keeping your spine tall.',
+    rules: [rule('torsoAngle', 20, 'Keep your trunk upright.', 2), { metric: 'kneeAngle', min: 150, message: 'Keep the raised knee extended.', weight: 1 }],
+    metricKeys: ['hipAngle', 'kneeAngle', 'torsoAngle', 'hipFlexion'] },
+
+  { id: 'tricep-extension', name: 'Tricep Extension', category: 'Elbow', strategy: 'tricepExtension', requiredLandmarks: ['shoulder', 'elbow', 'wrist'],
+    metric: 'Elbow extension', target: 60, start: 20, rest: 10, phases: ['ELBOW BENT', 'EXTENDING', 'STRAIGHT', 'RETURNING'],
+    positioning: 'Stand or sit side-on. Raise your upper arm overhead and straighten your elbow, then bend it back.',
+    limitation: 'Keep your upper arm beside your ear and in frame. Shoulder movement can distort the elbow angle.',
+    trackedJoints: ['shoulder', 'elbow', 'wrist'], cue: 'Extend your elbow fully overhead.',
+    rules: [rule('upperArmTilt', 25, 'Keep your upper arm still.', 2)],
+    metricKeys: ['elbowAngle', 'upperArmTilt', 'wristX', 'wristY', 'elbowExtension'] },
+
+  { id: 'ankle-dorsiflexion', name: 'Ankle Dorsiflexion', category: 'Ankle', strategy: 'ankleDorsiflexion', requiredLandmarks: [...lower, 'footIndex'],
+    metric: 'Ankle angle', target: 15, start: 5, rest: 2, phases: ['FOOT NEUTRAL', 'PULLING TOES UP', 'MAXIMUM', 'RETURNING'],
+    positioning: 'Stand or sit side-on with your foot fully visible. Keep your heel down and pull your toes up toward your shin.',
+    limitation: 'Ensure foot and shin are clearly visible in the camera frame without loose clothing obscuring the ankle.',
+    trackedJoints: ['knee', 'ankle', 'footIndex'], cue: 'Pull your toes up toward your shin with control.',
+    rules: [{ metric: 'kneeAngle', min: 140, message: 'Keep your knee steady.', weight: 1.5 }],
+    metricKeys: ['ankleAngle', 'dorsiflexionROM', 'kneeAngle'] },
+
+  { id: 'dead-bug', name: 'Dead Bug (Core Control)', category: 'Core', strategy: 'deadBug', requiredLandmarks: lower,
+    metric: 'Leg lowering', target: 35, start: 10, rest: 5, phases: ['LEGS UP', 'LOWERING', 'LOWEST POINT', 'RETURNING'],
+    positioning: 'Lie on your back, side-on to a low camera. Start with hips and knees at 90°. Slowly lower one leg toward the floor and return.',
+    limitation: 'The camera tracks hip angle; it cannot directly measure lumbar pressure. Maintain a flat lower back throughout.',
+    trackedJoints: ['hip', 'knee', 'shoulder'], cue: 'Lower your leg slowly and keep your back flat.',
+    rules: [{ metric: 'kneeAngle', min: 60, max: 120, message: 'Maintain the 90° knee position.', weight: 1 }],
+    metricKeys: ['hipAngle', 'kneeAngle', 'legLower', 'hipElevation'] },
+
+  { id: 'hip-external-rotation', name: 'Hip External Rotation (Clam)', category: 'Hip', strategy: 'hipExternalRotation', requiredLandmarks: lower,
+    metric: 'Rotation range', target: 20, start: 5, rest: 2, phases: ['KNEES TOGETHER', 'ROTATING OUT', 'TOP', 'RETURNING'],
+    positioning: 'Lie on your side facing the camera, knees stacked and bent to about 90°. Rotate your top knee upward like a clam.',
+    limitation: 'Knee-offset approximates rotation. The camera angle must be directly in front for best measurement.',
+    trackedJoints: ['hip', 'knee', 'ankle'], cue: 'Rotate your top knee up without rolling your pelvis.',
+    rules: [{ metric: 'kneeAngle', min: 60, max: 120, message: 'Keep your knees bent to 90°.', weight: 1.5 }],
+    metricKeys: ['kneeAngle', 'hipAngle', 'kneeOffset', 'rotationROM'] },
+];
+
+export function defineExercise(definition) {
+  const fraction = definition.unit === 'leg lengths';
+  const target = definition.target;
+  return {
+    ...definition, mode: definition.mode || 'repetition', unit: definition.unit || '°',
+    sides: ['auto', 'left', 'right', 'both'], defaultSide: definition.defaultSide || 'auto',
+    angleCalculations: definition.metricKeys, movementPhases: definition.phases,
+    confidence: { minimum: 0.6, maxGapMs: 350 },
+    repDetection: { rest: definition.rest, start: definition.start,
+      target: definition.mode === 'rom' ? target * 0.65 : target,
+      hysteresis: fraction ? 0.015 : 8, debounceMs: 120, targetDwellMs: 160,
+      minDurationMs: 1100, maxDurationMs: 20000, cooldownMs: 350, smoothing: 0.55,
+      maxVelocity: fraction ? 3 : 850 },
+    romTargets: { example: true, target, min: definition.start + (fraction ? 0.02 : 10), max: fraction ? 0.4 : ({ 'sit-to-stand': 90, 'knee-extension': 90, 'glute-bridge': 70 }[definition.id] || 150), step: fraction ? 0.01 : 5, label: fraction ? 'Heel lift above baseline' : 'Movement excursion' },
+    formRules: definition.rules,
+    feedbackRules: { controlSpeed: fraction ? 0.3 : 100, symmetryDifference: fraction ? 0.07 : 18,
+      weights: { rom: 0.3, alignment: 0.3, control: 0.2, consistency: 0.1, symmetry: 0.1 } },
+    measure: measurementStrategies[definition.strategy],
+  };
+}
+
+export const exerciseRegistry = Object.fromEntries(definitions.map(item => [item.id, defineExercise(item)]));
+export const getExercise = id => {
+  const exercise = exerciseRegistry[id];
+  if (!exercise) throw new Error(`Unknown exercise: ${id}`);
+  return exercise;
+};
